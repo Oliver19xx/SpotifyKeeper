@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: one narrow column, three real steps, action bar pinned to the bottom while tracks are selected. */
+/* Layout: App-Ansicht in Viewport-Höhe. Kopf und Aktionsleiste stehen, ein Schritt pro Bildschirm, Listen scrollen in sich. */
 :root {
   --bg: #efeef2; --panel: #fbfafc; --line: #d3d0da; --fg: #1d1a24; --muted: #625e6e;
   --accent: #b04a00; --on-accent: #fff; --bad: #b3261e; --good: #1f7a4d; --hover: #e6e4ec;
@@ -34,19 +34,24 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; height: 100%; }
 body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 16px/1.5 var(--display);
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 0 calc(112px + env(safe-area-inset-bottom, 0px));
+  margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--display);
+  height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
 }
-.wrap { max-width: 680px; margin: 0 auto; display: grid; gap: 28px; }
-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-top: calc(24px + env(safe-area-inset-top, 0px)); flex-wrap: wrap; }
-h1 { margin: 0; font-size: 1.9rem; line-height: 1.1; letter-spacing: -.02em; }
+.wrap {
+  flex: 1 1 auto; min-height: 0; width: 100%; max-width: 712px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header { flex: none; display: grid; gap: 2px; padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+.head-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; }
+.head-right { display: flex; gap: 10px; align-items: center; flex: none; }
+.head-meta { display: flex; flex-wrap: wrap; gap: 0 14px; align-items: center; font-size: .86rem; color: var(--muted); }
+.head-meta a, .head-meta button.link { color: var(--muted); font-size: .86rem; font-weight: 500; }
+h1 { margin: 0; font-size: 1.5rem; line-height: 1.1; letter-spacing: -.02em; }
 h2 { margin: 0; font-size: 1.15rem; line-height: 1.25; text-wrap: balance; }
-section { display: grid; gap: 12px; min-width: 0; }
+section { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+#target { overflow-y: auto; }
 .step-head { display: flex; gap: 10px; align-items: baseline; }
 .step-no { font: 500 .85rem var(--mono); color: var(--accent); }
 p { margin: 0; }
@@ -72,7 +77,7 @@ button:disabled { opacity: .5; cursor: default; }
   flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font: .88rem var(--mono);
   background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
 }
-.list { border-top: 1px solid var(--line); max-height: 52vh; overflow-y: auto; }
+.list { flex: 1 1 auto; min-height: 0; border-top: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; }
 .row {
   display: grid; grid-template-columns: auto 40px minmax(0, 1fr) auto; gap: 12px; align-items: center;
   width: 100%; padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
@@ -93,8 +98,7 @@ button:disabled { opacity: .5; cursor: default; }
 .seg { display: flex; gap: 20px; flex-wrap: wrap; }
 .seg label, .check { display: flex; gap: 8px; align-items: center; min-height: 32px; }
 .seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
-.head-right { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
-.head-right button.quiet { min-height: 36px; padding: 6px 12px; font-size: .92rem; }
+#openSync { min-height: 36px; padding: 6px 12px; font-size: .92rem; white-space: nowrap; }
 .sync-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1 1 auto; }
 .sync-body h2 { margin: 0; }
 .sync-actions { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
@@ -105,7 +109,6 @@ button:disabled { opacity: .5; cursor: default; }
 .pair .state.err { color: var(--bad); }
 .pair .state.new { color: var(--good); }
 .pairs { border-top: 1px solid var(--line); }
-footer { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; color: var(--muted); font-size: .88rem; }
 dialog {
   width: min(480px, calc(100vw - 32px)); padding: 20px; overflow: hidden; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   max-height: calc(100vh - 48px);
@@ -115,98 +118,80 @@ dialog {
 dialog[open] { display: flex; flex-direction: column; gap: 12px; }
 .dialog-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 dialog button { flex: none; }
-#closeChangelog { align-self: flex-start; }
+#closeChangelog, #closeAbout { align-self: flex-start; }
 dialog::backdrop { background: rgba(10, 8, 14, .6); }
 .release { display: grid; gap: 6px; padding-bottom: 14px; }
 .release h3 { margin: 0; font: 500 .9rem var(--mono); color: var(--accent); }
 .release ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-.intro { display: grid; gap: 14px; }
-.lead { font-size: 1.55rem; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; margin: 0; }
-.demo img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.lead { font-size: 1.4rem; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; margin: 0; flex: none; }
+.demo { flex: 1 1 0; min-height: 0; display: flex; justify-content: center; }
+.demo img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center top; }
+.intro-actions { flex: none; display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+.intro-text { flex: none; }
+#scanResult { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.stats, .tools, .step-head { flex: none; }
+#sourceFilter, #hiddenRow, #progress { flex: none; }
+#hiddenRow { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: .86rem; }
+.info { background: none; border: 1px solid var(--muted); color: var(--muted); width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 50%; font: 700 .8rem var(--mono); line-height: 1; flex: none; }
 .how { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .how li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 8px; }
 .how .step-no { line-height: 1.75; }
 .how b { font-weight: 700; }
+.scroll-stack { display: grid; gap: 14px; }
 .facts { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; color: var(--muted); font-size: .92rem; }
-details > summary { cursor: pointer; font-weight: 700; font-size: 1.15rem; min-height: 32px; }
-details[open] > summary { margin-bottom: 12px; }
-details > .inner { display: grid; gap: 12px; }
-.msg { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); overflow-wrap: anywhere; }
+.msg { flex: none; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); overflow-wrap: anywhere; }
 .msg.ok { border-color: var(--good); color: var(--good); }
-.actionbar {
-  position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
-  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+#actionbar { flex: none; background: var(--panel); border-top: 1px solid var(--line); }
+#actionbar > div {
+  max-width: 712px; margin: 0 auto; display: flex; gap: 12px; align-items: center;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
 }
-.actionbar > div { max-width: 680px; margin: 0 auto; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+#selCount { flex: 1 1 auto; text-align: right; min-width: 0; font-size: .92rem; }
 @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>SpotifyKeeper</h1>
-    <div class="head-right">
-      <button class="quiet" id="openSync" type="button" hidden>Sync-Liste</button>
-      <span class="muted" id="who" hidden></span>
+    <div class="head-top">
+      <h1>SpotifyKeeper</h1>
+      <div class="head-right">
+        <button class="quiet" id="openSync" type="button" hidden>Sync-Liste</button>
+        <button class="info" id="openAbout" type="button" aria-label="So funktioniert es">i</button>
+      </div>
+    </div>
+    <div class="head-meta">
+      <span class="mono" id="version"></span>
+      <button class="link" id="openChangelog" type="button">Changelog</button>
+      <a id="feedback" href="https://github.com/Oliver19xx/SpotifyKeeper/issues/new" target="_blank" rel="noopener">Feedback</a>
+      <button class="link" id="install" type="button" hidden>Installieren</button>
+      <button class="link" id="logout" type="button" hidden>Abmelden</button>
     </div>
   </header>
-  <div class="tools" id="installRow" hidden>
-    <button class="quiet" id="install" type="button" hidden>App installieren</button>
-    <p class="muted" id="iosHint" hidden>Als App installieren: In Safari auf Teilen tippen, dann „Zum Home-Bildschirm“.</p>
-  </div>
 
   <div class="msg" id="error" role="alert" hidden></div>
   <div class="msg ok" id="done" role="status" hidden></div>
 
-  <section class="intro" id="intro" hidden>
+  <section id="intro" hidden>
     <p class="lead">Behalte aus jeder Playlist genau die Songs, die du gelikt hast.</p>
+    <p class="intro-text">Sammelt deine Likes aus mehreren Playlists in einer Playlist und hält sie aktuell.</p>
     <picture class="demo">
       <source srcset="assets/explainer.png" media="(prefers-reduced-motion: reduce)">
       <img src="assets/explainer.gif" width="720" height="450" alt="Animation: In einer Playlist werden die gelikten Songs erkannt und in eine zweite Playlist übertragen.">
     </picture>
-    <p>SpotifyKeeper gleicht eine Playlist mit deinen Spotify-Likes ab und überträgt die Treffer in eine neue oder bestehende Playlist.</p>
-    <ol class="how">
-      <li><span class="step-no">1</span><span><b>Playlists wählen.</b> Nimm eine oder mehrere Playlists, in denen du Songs gelikt hast.</span></li>
-      <li><span class="step-no">2</span><span><b>Treffer prüfen.</b> Du siehst alle gelikten Songs und kannst einzelne abwählen.</span></li>
-      <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
-    </ol>
-    <ul class="facts">
-      <li>Jede Übertragung landet in deiner Sync-Liste. Ein Tipp reicht, um neue Likes nachzuholen und zurückgenommene zu entfernen.</li>
-      <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
-      <li>Du brauchst Spotify Premium und eine eigene Client ID aus dem Spotify Dashboard.</li>
-      <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
-    </ul>
-  </section>
-
-  <section id="setup" hidden>
-    <details id="setupDetails" open>
-    <summary>Spotify-App einrichten</summary>
-    <div class="inner">
-    <p class="msg" id="originWarn" hidden></p>
-    <ol class="setup">
-      <li>Im <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> eine App anlegen, bei den APIs „Web API“ wählen.</li>
-      <li>Diese Adresse als Redirect URI eintragen:
-        <div class="copyline" style="margin-top:6px"><code id="redirect"></code><button class="quiet" id="copyRedirect" type="button">Kopieren</button></div>
-      </li>
-      <li>Client ID kopieren und hier einfügen. Der Client Secret wird nicht gebraucht.</li>
-    </ol>
-    <label class="field">Client ID
-      <input type="text" id="clientId" autocomplete="off" spellcheck="false" placeholder="32 Zeichen aus dem Dashboard">
-    </label>
+    <div class="intro-actions">
+      <button id="login" type="button">Bei Spotify anmelden</button>
+      <button class="quiet" id="openSetup" type="button">Einrichtung</button>
     </div>
-    </details>
-    <div><button id="login" type="button">Bei Spotify anmelden</button></div>
   </section>
 
   <section id="source" hidden>
     <div class="step-head"><span class="step-no">1</span><h2>Playlists wählen</h2></div>
-    <p class="muted">Fremde Playlist? Erst in der Spotify-App in eine eigene kopieren: Alle Songs markieren, dann „Zu Playlist hinzufügen“.</p>
     <input type="search" id="sourceFilter" aria-label="Playlists filtern" placeholder="Playlists filtern">
     <div class="list" id="sourceList"></div>
-    <p class="muted" id="hiddenNote" hidden></p>
-    <div><button id="scanStart" type="button" disabled>Likes finden</button></div>
+    <div id="hiddenRow" hidden><span id="hiddenNote"></span><button class="info" id="hiddenInfo" type="button" aria-label="Warum ausgeblendet?">i</button></div>
   </section>
 
   <section id="scan" hidden>
@@ -215,7 +200,7 @@ details > .inner { display: grid; gap: 12px; }
       <p class="muted" id="progressText" style="margin-bottom:6px"></p>
       <div class="bar"><i id="progressBar"></i></div>
     </div>
-    <div id="scanResult" hidden style="display:grid;gap:12px">
+    <div id="scanResult" hidden>
       <div class="stats">
         <span><strong id="likedCount">0</strong> <span class="muted">von <span id="totalCount">0</span> Songs gelikt</span></span>
         <span class="muted" id="skippedNote"></span>
@@ -243,11 +228,6 @@ details > .inner { display: grid; gap: 12px; }
     </label>
   </section>
 
-  <footer>
-    <span class="mono" id="version"></span>
-    <button class="link" id="openChangelog" type="button">Changelog</button>
-    <a id="feedback" href="https://github.com/Oliver19xx/SpotifyKeeper/issues/new" target="_blank" rel="noopener">Feedback geben</a>
-  </footer>
 </div>
 
 <dialog id="sync" aria-labelledby="syncTitle">
@@ -263,16 +243,60 @@ details > .inner { display: grid; gap: 12px; }
   </div>
 </dialog>
 
+<dialog id="about" aria-labelledby="aboutTitle">
+  <h2 id="aboutTitle">So funktioniert es</h2>
+  <div class="dialog-scroll scroll-stack">
+    <ol class="how">
+      <li><span class="step-no">1</span><span><b>Playlists wählen.</b> Nimm eine oder mehrere Playlists, in denen du Songs gelikt hast.</span></li>
+      <li><span class="step-no">2</span><span><b>Treffer prüfen.</b> Du siehst alle gelikten Songs und kannst einzelne abwählen.</span></li>
+      <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
+    </ol>
+    <ul class="facts">
+      <li>Jede Übertragung landet in deiner Sync-Liste. Ein Tipp reicht, um neue Likes nachzuholen und zurückgenommene zu entfernen.</li>
+      <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren: Alle Songs markieren, dann „Zu Playlist hinzufügen“. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
+      <li>Du brauchst Spotify Premium und eine Client ID aus dem Spotify Dashboard.</li>
+      <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
+      <li id="iosHint" hidden>Als App installieren: In Safari auf Teilen tippen, dann „Zum Home-Bildschirm“.</li>
+    </ul>
+  </div>
+  <button id="closeAbout" type="button">Alles klar</button>
+</dialog>
+
+<dialog id="setup" aria-labelledby="setupTitle">
+  <h2 id="setupTitle">Spotify-App einrichten</h2>
+  <div class="dialog-scroll scroll-stack">
+    <p class="msg" id="originWarn" hidden></p>
+    <ol class="setup">
+      <li>Im <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> eine App anlegen, bei den APIs „Web API“ wählen.</li>
+      <li>Diese Adresse als Redirect URI eintragen:
+        <div class="copyline" style="margin-top:6px"><code id="redirect"></code><button class="quiet" id="copyRedirect" type="button">Kopieren</button></div>
+      </li>
+      <li>Client ID kopieren und hier einfügen. Der Client Secret wird nicht gebraucht.</li>
+    </ol>
+    <label class="field">Client ID
+      <input type="text" id="clientId" autocomplete="off" spellcheck="false" placeholder="32 Zeichen aus dem Dashboard">
+    </label>
+    <p class="msg" id="setupError" role="alert" hidden></p>
+  </div>
+  <div class="sync-actions">
+    <button id="setupLogin" type="button">Anmelden</button>
+    <button class="quiet" id="closeSetup" type="button">Schließen</button>
+  </div>
+</dialog>
+
 <dialog id="changelog" aria-labelledby="changelogTitle">
   <h2 id="changelogTitle">Neu in SpotifyKeeper</h2>
   <div class="dialog-scroll" id="changelogBody"></div>
   <button id="closeChangelog" type="button">Alles klar</button>
 </dialog>
 
-<div class="actionbar" id="actionbar" hidden>
+<div id="actionbar" hidden>
   <div>
+    <button class="quiet" id="back" type="button" hidden>Zurück</button>
     <span class="mono" id="selCount"></span>
-    <button id="transfer" type="button">Übertragen</button>
+    <button id="scanStart" type="button" disabled>Likes finden</button>
+    <button id="toTarget" type="button" hidden>Weiter</button>
+    <button id="transfer" type="button" hidden>Übertragen</button>
   </div>
 </div>
 
@@ -284,8 +308,13 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.7.0';
 const CHANGELOG = [
+  { version: '1.7.0', items: [
+    'Alles passt ohne Scrollen auf den Bildschirm, ein Schritt pro Ansicht.',
+    'Version, Changelog und Feedback stehen jetzt oben.',
+    'Erklärung und Einrichtung liegen hinter dem i und dem Knopf Einrichtung.',
+  ] },
   { version: '1.6.2', items: ['Lange Listen scrollen im Fenster, der Knopf bleibt immer sichtbar.'] },
   { version: '1.6.1', items: ['Dieses Fenster bleibt nach einem Update offen, bis du es schließt.'] },
   { version: '1.6.0', items: ['Feedback geben: Der Link unten auf der Seite führt zu GitHub Issues.'] },
@@ -311,7 +340,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('spotifykeeper.' + k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
 };
-const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null };
+const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null, view: 'source' };
 state.picked = new Set(); state.srcs = []; state.srcLiked = new Map(); state.partial = new Set(); state.partialTarget = null;
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
@@ -325,7 +354,8 @@ function songs(n) { return n === 1 ? '1 Song' : n + ' Songs'; }
 /* ---------- Anmeldung (PKCE) ---------- */
 async function startLogin() {
   const clientId = $('clientId').value.trim();
-  if (!/^[0-9a-zA-Z]{20,}$/.test(clientId)) { $('setupDetails').open = true; showError('Die Client ID fehlt oder ist unvollständig. Kopiere sie aus dem Spotify Dashboard.'); return; }
+  if (!/^[0-9a-zA-Z]{20,}$/.test(clientId)) { $('setupError').textContent = 'Die Client ID fehlt oder ist unvollständig. Kopiere sie aus dem Spotify Dashboard.'; $('setupError').hidden = false; return; }
+  $('setupError').hidden = true;
   store.set('clientId', clientId);
   const verifier = randomString(), authState = randomString();
   store.set('verifier', verifier); store.set('state', authState);
@@ -440,7 +470,7 @@ function renderSources() {
   }
   if (!shown.length) { const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px'; e.textContent = q ? 'Keine Playlist passt zum Filter.' : 'Keine eigenen Playlists gefunden.'; list.append(e); }
   const hidden = state.playlists.filter(p => p && !ownOrCollab(p)).length;
-  $('hiddenNote').hidden = !hidden;
+  $('hiddenRow').hidden = !hidden;
   $('hiddenNote').textContent = hidden + (hidden === 1 ? ' gefolgte Playlist ausgeblendet' : ' gefolgte Playlists ausgeblendet') + ', Spotify gibt deren Songs nicht heraus.';
   updateScanButton();
 }
@@ -451,10 +481,17 @@ function updateScanButton() {
   $('scanStart').disabled = state.busy || !n;
   $('scanStart').textContent = n > 1 ? n + ' Playlists abgleichen' : 'Likes finden';
 }
+function show(view) {
+  state.view = view;
+  $('source').hidden = view !== 'source';
+  $('scan').hidden = view !== 'scan';
+  $('target').hidden = view !== 'target';
+  updateBar();
+}
 function clearResults() {
   state.srcs = []; state.srcLiked = new Map(); state.tracks = []; state.selected = new Set(); state.createdId = null;
   showError('');
-  $('scan').hidden = true; $('target').hidden = true; $('actionbar').hidden = true; $('done').hidden = true;
+  $('done').hidden = true;
 }
 
 /* ---------- Schritt 2: Abgleich ---------- */
@@ -501,9 +538,8 @@ async function scan() {
   clearResults(); renderSources();
   const many = playlists.length > 1;
   state.srcs = playlists;
-  $('scan').hidden = false; $('scanResult').hidden = true;
+  show('scan'); $('scanResult').hidden = true;
   $('scanTitle').textContent = many ? 'Likes in ' + playlists.length + ' Playlists' : 'Likes in ' + playlists[0].name;
-  $('scan').scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
     const byUri = new Map(), allUris = new Set();
     let skipped = 0, dupes = 0;
@@ -542,7 +578,6 @@ async function scan() {
     if (liked.length) {
       $('newName').value = many ? '' : playlists[0].name + ' Likes';
       fillExisting();
-      $('target').hidden = false;
     }
   } catch (e) {
     $('progress').hidden = true;
@@ -596,10 +631,20 @@ function syncMode() {
 }
 function updateBar() {
   $('syncAll').disabled = state.busy;
-  const n = state.selected.size;
-  $('actionbar').hidden = !state.tracks.length;
-  $('selCount').textContent = songs(n);
+  const n = state.selected.size, v = state.view;
+  $('back').hidden = v === 'source';
+  $('back').disabled = state.busy;
+  $('scanStart').hidden = v !== 'source';
+  $('toTarget').hidden = v !== 'scan' || !state.tracks.length;
+  $('toTarget').disabled = state.busy || !n;
+  $('transfer').hidden = v !== 'target';
   $('transfer').disabled = state.busy || !n || (targetMode() === 'new' && !state.createdId && !$('newName').value.trim());
+  $('selCount').textContent = v !== 'source' && state.tracks.length ? songs(n) : '';
+}
+function goBack() {
+  if (state.busy) return;
+  if (state.view === 'target') { show('scan'); return; }
+  clearResults(); show('source');
 }
 async function transfer() {
   if (state.busy) return;
@@ -635,6 +680,7 @@ async function transfer() {
     await loadPlaylists();
     state.picked = new Set();
     clearResults();
+    show('source');
     $('sourceFilter').value = '';
     const done = $('done');
     done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. ') + 'Steht jetzt in der Sync-Liste. ');
@@ -643,10 +689,8 @@ async function transfer() {
     a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'In Spotify öffnen';
     done.append(a);
     done.hidden = false;
-    done.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (e) {
     showError(e.message + (targetId ? ' ' + added + ' von ' + uris.length + ' Songs sind in „' + targetName + '“. Erneut übertragen lässt vorhandene Songs aus.' : ''));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   } finally {
     state.busy = false;
     $('transfer').textContent = 'Übertragen';
@@ -793,17 +837,19 @@ async function loadPlaylists() {
 }
 function showSetup() {
   $('intro').hidden = false;
-  $('setup').hidden = false;
-  $('setupDetails').open = !store.get('clientId');
   $('redirect').textContent = redirectUri;
   $('clientId').value = store.get('clientId') || '';
   const bad = location.protocol === 'file:' ? 'Als lokale Datei funktioniert die Anmeldung nicht. Öffne die Seite über https oder http://127.0.0.1.'
     : location.hostname === 'localhost' ? 'Spotify akzeptiert „localhost“ nicht als Redirect URI. Öffne die Seite über http://127.0.0.1.'
     : (location.protocol === 'http:' && location.hostname !== '127.0.0.1') ? 'Spotify verlangt https oder http://127.0.0.1.' : '';
   $('originWarn').textContent = bad; $('originWarn').hidden = !bad;
-  $('login').disabled = !!bad;
-  if (bad) $('setupDetails').open = true;
+  $('setupLogin').disabled = !!bad;
 }
+function loginClicked() {
+  if (store.get('clientId') && !$('setupLogin').disabled) startLogin();
+  else if (!$('setup').open) $('setup').showModal();
+}
+
 /* ---------- Changelog ---------- */
 function isNewer(a, b) {
   const x = a.split('.').map(Number), y = b.split('.').map(Number);
@@ -857,27 +903,35 @@ function setupInstall() {
   addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     promptEvent = e;
-    $('install').hidden = false; $('installRow').hidden = false;
+    $('install').hidden = false;
   });
-  addEventListener('appinstalled', () => { $('installRow').hidden = true; });
+  addEventListener('appinstalled', () => { $('install').hidden = true; });
   $('install').addEventListener('click', async () => {
     if (!promptEvent) return;
     promptEvent.prompt();
     await promptEvent.userChoice;
     promptEvent = null;
-    $('installRow').hidden = true;
+    $('install').hidden = true;
   });
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (ios) { $('iosHint').hidden = false; $('installRow').hidden = false; }
+  if (ios) $('iosHint').hidden = false;
 }
 async function init() {
   setupInstall();
-  $('version').textContent = 'Version ' + APP_VERSION;
+  $('version').textContent = 'v' + APP_VERSION;
   $('feedback').href += '?' + new URLSearchParams({ body: 'Was ist dir aufgefallen?\n\n\n---\nVersion ' + APP_VERSION });
   $('openChangelog').addEventListener('click', () => openChangelog(CHANGELOG, 'Changelog'));
   $('closeChangelog').addEventListener('click', () => $('changelog').close());
   showChangelogIfUpdated();
-  $('login').addEventListener('click', startLogin);
+  $('login').addEventListener('click', loginClicked);
+  $('setupLogin').addEventListener('click', startLogin);
+  $('openSetup').addEventListener('click', () => $('setup').showModal());
+  $('closeSetup').addEventListener('click', () => $('setup').close());
+  for (const id of ['openAbout', 'hiddenInfo']) $(id).addEventListener('click', () => $('about').showModal());
+  $('closeAbout').addEventListener('click', () => $('about').close());
+  $('logout').addEventListener('click', logout);
+  $('back').addEventListener('click', goBack);
+  $('toTarget').addEventListener('click', () => show('target'));
   $('copyRedirect').addEventListener('click', async e => {
     try { await navigator.clipboard.writeText(redirectUri); e.target.textContent = 'Kopiert'; }
     catch { getSelection().selectAllChildren($('redirect')); }
@@ -907,14 +961,9 @@ async function init() {
     }
     if (!store.get('session')) { showSetup(); return; }
     state.me = await api('/me');
-    const who = $('who');
-    who.hidden = false;
-    who.replaceChildren((state.me.display_name || state.me.id) + ' · ');
-    const out = document.createElement('button');
-    out.className = 'link'; out.type = 'button'; out.textContent = 'Abmelden';
-    out.addEventListener('click', logout);
-    who.append(out);
-    $('source').hidden = false;
+    $('logout').hidden = false;
+    $('actionbar').hidden = false;
+    show('source');
     state.pairs = (store.get(pairsKey()) || []).map(p => ({ added: [], ...p }));
     renderPairs();
     await loadPlaylists();
