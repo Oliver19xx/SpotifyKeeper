@@ -4,6 +4,8 @@
 
 Läuft komplett im Browser (Spotify-Login per PKCE, kein Server, kein Client Secret).
 
+Lässt sich als PWA installieren.
+
 ## Einrichtung
 
 1. Im [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) eine App mit Web API anlegen.

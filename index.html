@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SpotifyKeeper</title>
+<meta name="description" content="Überträgt die gelikten Songs einer Playlist in eine neue oder bestehende Playlist.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#efeef2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15131a" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Keeper">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -33,7 +43,7 @@ body {
   padding-block: 0 calc(112px + env(safe-area-inset-bottom, 0px));
 }
 .wrap { max-width: 680px; margin: 0 auto; display: grid; gap: 28px; }
-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-top: 24px; flex-wrap: wrap; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-top: calc(24px + env(safe-area-inset-top, 0px)); flex-wrap: wrap; }
 h1 { margin: 0; font-size: 1.9rem; line-height: 1.1; letter-spacing: -.02em; }
 h2 { margin: 0; font-size: 1.15rem; line-height: 1.25; text-wrap: balance; }
 section { display: grid; gap: 12px; min-width: 0; }
@@ -86,6 +96,16 @@ button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; 
 .seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.intro { display: grid; gap: 14px; }
+.lead { font-size: 1.55rem; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; margin: 0; }
+.how { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.how li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 8px; }
+.how .step-no { line-height: 1.75; }
+.how b { font-weight: 700; }
+.facts { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; color: var(--muted); font-size: .92rem; }
+details > summary { cursor: pointer; font-weight: 700; font-size: 1.15rem; min-height: 32px; }
+details[open] > summary { margin-bottom: 12px; }
+details > .inner { display: grid; gap: 12px; }
 .msg { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); overflow-wrap: anywhere; }
 .msg.ok { border-color: var(--good); color: var(--good); }
 .actionbar {
@@ -102,11 +122,32 @@ button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; 
     <h1>SpotifyKeeper</h1>
     <span class="muted" id="who" hidden></span>
   </header>
+  <div class="tools" id="installRow" hidden>
+    <button class="quiet" id="install" type="button" hidden>App installieren</button>
+    <p class="muted" id="iosHint" hidden>Als App installieren: In Safari auf Teilen tippen, dann „Zum Home-Bildschirm“.</p>
+  </div>
 
   <div class="msg" id="error" role="alert" hidden></div>
 
+  <section class="intro" id="intro" hidden>
+    <p class="lead">Behalte aus jeder Playlist genau die Songs, die du gelikt hast.</p>
+    <p>SpotifyKeeper gleicht eine Playlist mit deinen Spotify-Likes ab und überträgt die Treffer in eine neue oder bestehende Playlist.</p>
+    <ol class="how">
+      <li><span class="step-no">1</span><span><b>Playlist wählen.</b> Nimm eine Playlist, in der du Songs gelikt hast.</span></li>
+      <li><span class="step-no">2</span><span><b>Treffer prüfen.</b> Du siehst alle gelikten Songs und kannst einzelne abwählen.</span></li>
+      <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
+    </ol>
+    <ul class="facts">
+      <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
+      <li>Du brauchst Spotify Premium und eine eigene Client ID aus dem Spotify Dashboard.</li>
+      <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
+    </ul>
+  </section>
+
   <section id="setup" hidden>
-    <h2>Mit Spotify verbinden</h2>
+    <details id="setupDetails" open>
+    <summary>Spotify-App einrichten</summary>
+    <div class="inner">
     <p class="msg" id="originWarn" hidden></p>
     <ol class="setup">
       <li>Im <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> eine App anlegen, bei den APIs „Web API“ wählen.</li>
@@ -118,6 +159,8 @@ button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; 
     <label class="field">Client ID
       <input type="text" id="clientId" autocomplete="off" spellcheck="false" placeholder="32 Zeichen aus dem Dashboard">
     </label>
+    </div>
+    </details>
     <div><button id="login" type="button">Bei Spotify anmelden</button></div>
   </section>
 
@@ -199,7 +242,7 @@ function songs(n) { return n === 1 ? '1 Song' : n + ' Songs'; }
 /* ---------- Anmeldung (PKCE) ---------- */
 async function startLogin() {
   const clientId = $('clientId').value.trim();
-  if (!/^[0-9a-zA-Z]{20,}$/.test(clientId)) { showError('Die Client ID fehlt oder ist unvollständig. Kopiere sie aus dem Spotify Dashboard.'); return; }
+  if (!/^[0-9a-zA-Z]{20,}$/.test(clientId)) { $('setupDetails').open = true; showError('Die Client ID fehlt oder ist unvollständig. Kopiere sie aus dem Spotify Dashboard.'); return; }
   store.set('clientId', clientId);
   const verifier = randomString(), authState = randomString();
   store.set('verifier', verifier); store.set('state', authState);
@@ -475,7 +518,9 @@ async function loadPlaylists() {
   renderSources();
 }
 function showSetup() {
+  $('intro').hidden = false;
   $('setup').hidden = false;
+  $('setupDetails').open = !store.get('clientId');
   $('redirect').textContent = redirectUri;
   $('clientId').value = store.get('clientId') || '';
   const bad = location.protocol === 'file:' ? 'Als lokale Datei funktioniert die Anmeldung nicht. Öffne die Seite über https oder http://127.0.0.1.'
@@ -483,8 +528,33 @@ function showSetup() {
     : (location.protocol === 'http:' && location.hostname !== '127.0.0.1') ? 'Spotify verlangt https oder http://127.0.0.1.' : '';
   $('originWarn').textContent = bad; $('originWarn').hidden = !bad;
   $('login').disabled = !!bad;
+  if (bad) $('setupDetails').open = true;
+}
+function setupInstall() {
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  if (standalone) return;
+  let promptEvent = null;
+  addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    promptEvent = e;
+    $('install').hidden = false; $('installRow').hidden = false;
+  });
+  addEventListener('appinstalled', () => { $('installRow').hidden = true; });
+  $('install').addEventListener('click', async () => {
+    if (!promptEvent) return;
+    promptEvent.prompt();
+    await promptEvent.userChoice;
+    promptEvent = null;
+    $('installRow').hidden = true;
+  });
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) { $('iosHint').hidden = false; $('installRow').hidden = false; }
 }
 async function init() {
+  setupInstall();
   $('login').addEventListener('click', startLogin);
   $('copyRedirect').addEventListener('click', async e => {
     try { await navigator.clipboard.writeText(redirectUri); e.target.textContent = 'Kopiert'; }
