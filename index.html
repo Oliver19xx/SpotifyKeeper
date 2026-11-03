@@ -92,6 +92,10 @@ button:disabled { opacity: .5; cursor: default; }
 .name b { font-weight: 500; }
 .name span { color: var(--muted); font-size: .88rem; }
 .meta { font: .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.bpm-row { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 2px; border-bottom: 1px solid var(--line); }
+.bpm-row .val { font: 500 .9rem var(--mono); color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+.bpm-row .val.none { color: var(--muted); }
+.bpm-row .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; }
 .likes { color: var(--muted); }
 .likes.fresh { color: var(--accent); }
 .stats { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: baseline; }
@@ -245,6 +249,17 @@ dialog::backdrop { background: rgba(10, 8, 14, .6); }
   </div>
 </dialog>
 
+<dialog id="bpm" aria-labelledby="bpmTitle">
+  <h2 id="bpmTitle">Nach BPM sortieren</h2>
+  <p class="muted" id="bpmSummary" role="status"></p>
+  <div class="bar" id="bpmBarBox"><i id="bpmBar"></i></div>
+  <div class="list dialog-scroll" id="bpmList"></div>
+  <div class="sync-actions">
+    <button id="bpmApply" type="button" hidden>Jetzt sortieren</button>
+    <button class="quiet" id="bpmClose" type="button">Schließen</button>
+  </div>
+</dialog>
+
 <dialog id="about" aria-labelledby="aboutTitle">
   <h2 id="aboutTitle">So funktioniert es</h2>
   <div class="dialog-scroll scroll-stack">
@@ -258,6 +273,7 @@ dialog::backdrop { background: rgba(10, 8, 14, .6); }
       <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren: Alle Songs markieren, dann „Zu Playlist hinzufügen“. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
       <li>Du brauchst Spotify Premium und eine Client ID aus dem Spotify Dashboard.</li>
       <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
+      <li>Spotify liefert keine BPM. Fürs Sortieren holt die App sie bei ReccoBeats und Deezer und schickt dafür die Song-Kennungen dorthin.</li>
       <li id="iosHint" hidden>Als App installieren: In Safari auf Teilen tippen, dann „Zum Home-Bildschirm“.</li>
     </ul>
   </div>
@@ -310,8 +326,9 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const CHANGELOG = [
+  { version: '1.9.0', items: ['In der Sync-Liste kannst du eine Ziel-Playlist nach BPM sortieren, von niedrig nach hoch.'] },
   { version: '1.8.0', items: ['Hakst du eine Playlist an, siehst du neben der Songzahl auch ihre Likes. Die Zahl bleibt gespeichert.'] },
   { version: '1.7.0', items: [
     'Alles passt ohne Scrollen auf den Bildschirm, ein Schritt pro Ansicht.',
@@ -807,7 +824,12 @@ function renderPairs() {
       if (changes.length) st.classList.add('new');
     }
     st.style.gridColumn = '1 / -1';
-    row.append(route, remove, st);
+    const sort = document.createElement('button');
+    sort.type = 'button'; sort.className = 'link'; sort.textContent = 'Nach BPM sortieren'; sort.disabled = state.busy;
+    sort.style.gridColumn = '1 / -1'; sort.style.justifySelf = 'start';
+    sort.setAttribute('aria-label', p.targetName + ' nach BPM sortieren');
+    sort.addEventListener('click', () => openBpm(p));
+    row.append(route, remove, st, sort);
     list.append(row);
   }
 }
@@ -888,6 +910,167 @@ async function syncAll() {
     state.running = null; state.busy = false;
     if (state.srcs.length) fillExisting();
     updateBar(); renderPairs(); renderSources();
+  }
+}
+
+/* ---------- BPM ---------- */
+// Spotify liefert seit 2024 keine BPM mehr. Quelle 1: ReccoBeats, Quelle 2 für Lücken: Deezer per ISRC.
+const RECCO = 'https://api.reccobeats.com/v1/audio-features', RECCO_BATCH = 5, RECCO_PAUSE = 500;
+const trackId = uri => uri.split(':').pop();
+function bpmProgress(done, total) { $('bpmBar').style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'; }
+async function reccoBpm(ids, onFound, onProgress) {
+  let done = 0, reachable = true;
+  for (const part of chunk(ids, RECCO_BATCH)) {
+    if (!$('bpm').open) break;
+    try {
+      let res;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        res = await fetch(RECCO + '?' + new URLSearchParams({ ids: part.join(',') }));
+        if (res.status !== 429) break;
+        await sleep(2000 * (attempt + 1));
+      }
+      if (res.ok) {
+        const data = await res.json();
+        for (const f of data.content || []) {
+          const id = ((f.href || '').match(/track\/([0-9A-Za-z]+)/) || [])[1];
+          if (id && f.tempo > 0) onFound(id, f.tempo);
+        }
+      }
+    } catch { reachable = false; break; }
+    done += part.length;
+    onProgress(done, ids.length);
+    await sleep(RECCO_PAUSE);
+  }
+  return reachable;
+}
+// Deezer erlaubt nur JSONP. Das läuft in einem abgeschotteten iframe ohne Zugriff auf Anmeldedaten.
+function deezerBpm(isrcs, onFound, onProgress) {
+  return new Promise(resolve => {
+    const clean = isrcs.filter(i => /^[A-Za-z0-9]{12}$/.test(i));
+    if (!clean.length) { resolve(); return; }
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.hidden = true;
+    let watchdog, done = 0;
+    const finish = () => { clearTimeout(watchdog); removeEventListener('message', onMsg); frame.remove(); resolve(); };
+    const arm = () => { clearTimeout(watchdog); watchdog = setTimeout(finish, 10000); };
+    function onMsg(e) {
+      if (e.source !== frame.contentWindow || !e.data || !e.data.dz) return;
+      if (e.data.dz === 2 || !$('bpm').open) { finish(); return; }
+      if (e.data.bpm > 0 && clean.includes(e.data.isrc)) onFound(e.data.isrc, Number(e.data.bpm));
+      onProgress(++done, clean.length);
+      arm();
+    }
+    addEventListener('message', onMsg);
+    frame.srcdoc = '<!doctype html><body><script>var list=' + JSON.stringify(clean) + ',i=-1,t;'
+      + 'function done(b){clearTimeout(t);parent.postMessage({dz:1,isrc:list[i],bpm:b},"*");setTimeout(next,160)}'
+      + 'function cb(d){done(d&&d.bpm||0)}'
+      + 'function next(){i++;if(i>=list.length){parent.postMessage({dz:2},"*");return}'
+      + 'var s=document.createElement("script");s.src="https://api.deezer.com/track/isrc:"+list[i]+"?output=jsonp&callback=cb";'
+      + 's.onerror=function(){done(0)};t=setTimeout(function(){done(0)},6000);document.body.appendChild(s)}'
+      + 'next()<\/script>';
+    arm();
+    document.body.append(frame);
+  });
+}
+function renderBpmList(entries) {
+  const list = $('bpmList');
+  list.replaceChildren();
+  for (const e of entries) {
+    const row = document.createElement('div'); row.className = 'bpm-row';
+    const val = document.createElement('span');
+    val.className = 'val' + (e.bpm ? '' : ' none');
+    val.textContent = e.bpm ? Math.round(e.bpm) : '?';
+    const txt = document.createElement('span'); txt.className = 'txt';
+    txt.textContent = e.name + (e.artist ? ' · ' + e.artist : '');
+    row.append(val, txt);
+    list.append(row);
+  }
+}
+async function openBpm(p) {
+  if (state.busy) return;
+  state.busy = true; updateBar(); renderPairs();
+  state.bpmPlan = null;
+  $('bpmTitle').textContent = p.targetName + ' nach BPM';
+  $('bpmSummary').textContent = 'Lese Playlist…';
+  $('bpmBarBox').hidden = false; bpmProgress(0, 1);
+  $('bpmList').replaceChildren(); $('bpmApply').hidden = true;
+  $('bpm').showModal();
+  try {
+    const rows = await getAll('/playlists/' + encodeURIComponent(p.targetId) + '/items?additional_types=track&limit=' + PAGE_MAX);
+    const entries = rows.map((row, i) => {
+      const t = row && (row.item || row.track);
+      const isTrack = t && t.type === 'track' && !row.is_local && !t.is_local && t.uri;
+      return {
+        i, id: isTrack ? trackId(t.uri) : null, isrc: isTrack ? (t.external_ids || {}).isrc : null,
+        name: (t && t.name) || 'Unbekannter Eintrag', artist: ((t && t.artists) || []).map(a => a.name).join(', '), bpm: 0,
+      };
+    });
+    const cache = store.get('bpm') || {};
+    const remember = (id, v) => { cache[id] = Math.round(v * 10) / 10; };
+    const missing = () => [...new Set(entries.filter(e => e.id && !cache[e.id]).map(e => e.id))];
+    let ids = missing(), reachable = true;
+    if (ids.length) {
+      $('bpmSummary').textContent = 'Suche BPM bei ReccoBeats…';
+      reachable = await reccoBpm(ids, remember, bpmProgress);
+    }
+    ids = new Set(missing());
+    const byIsrc = new Map(entries.filter(e => ids.has(e.id) && e.isrc).map(e => [e.isrc, e.id]));
+    if (byIsrc.size && $('bpm').open) {
+      $('bpmSummary').textContent = 'Suche fehlende BPM bei Deezer…';
+      bpmProgress(0, 1);
+      await deezerBpm([...byIsrc.keys()], (isrc, v) => remember(byIsrc.get(isrc), v), bpmProgress);
+    }
+    store.set('bpm', cache);
+    if (!$('bpm').open) return;
+    for (const e of entries) if (e.id && cache[e.id]) e.bpm = cache[e.id];
+    const known = entries.filter(e => e.bpm).sort((a, b) => a.bpm - b.bpm || a.i - b.i);
+    const unknown = entries.filter(e => !e.bpm);
+    const sorted = [...known, ...unknown];
+    renderBpmList(sorted);
+    $('bpmBarBox').hidden = true;
+    const notes = [known.length + ' von ' + entries.length + ' Songs mit BPM gefunden.'];
+    if (unknown.length) notes.push('Der Rest kommt ans Ende.');
+    if (!reachable) notes.push('ReccoBeats war nicht erreichbar.');
+    if (known.length) notes.push('Die aktuelle Reihenfolge wird überschrieben.');
+    $('bpmSummary').textContent = notes.join(' ');
+    if (known.length) {
+      state.bpmPlan = { targetId: p.targetId, order: entries.map(e => e.i), want: sorted.map(e => e.i) };
+      $('bpmApply').hidden = false;
+    }
+  } catch (e) {
+    $('bpmBarBox').hidden = true;
+    $('bpmSummary').textContent = e.message;
+  } finally {
+    state.busy = false; updateBar(); renderPairs();
+  }
+}
+async function applyBpm() {
+  const plan = state.bpmPlan;
+  if (state.busy || !plan) return;
+  state.busy = true; updateBar(); renderPairs();
+  $('bpmApply').hidden = true; $('bpmBarBox').hidden = false; bpmProgress(0, 1);
+  const cur = plan.order.slice(), want = plan.want;
+  const total = want.length;
+  try {
+    // Einzelne Verschiebungen statt Neuschreiben: Bricht es ab, fehlt kein Song.
+    for (let pos = 0; pos < total; pos++) {
+      if (!$('bpm').open) break;
+      if (cur[pos] !== want[pos]) {
+        const from = cur.indexOf(want[pos]);
+        await api('/playlists/' + encodeURIComponent(plan.targetId) + '/items', { method: 'PUT', body: { range_start: from, insert_before: pos, range_length: 1 } });
+        cur.splice(pos, 0, cur.splice(from, 1)[0]);
+      }
+      bpmProgress(pos + 1, total);
+      $('bpmSummary').textContent = 'Sortiere: ' + (pos + 1) + ' von ' + total;
+    }
+    $('bpmSummary').textContent = cur.every((x, i) => x === want[i]) ? 'Fertig sortiert, von niedrig nach hoch.' : 'Abgebrochen. Die Playlist ist teilweise sortiert, es fehlt kein Song.';
+  } catch (e) {
+    $('bpmSummary').textContent = e.message + ' Die Playlist ist teilweise sortiert, es fehlt kein Song.';
+  } finally {
+    $('bpmBarBox').hidden = true;
+    state.bpmPlan = null;
+    state.busy = false; updateBar(); renderPairs();
   }
 }
 
@@ -990,6 +1173,8 @@ async function init() {
   $('closeSetup').addEventListener('click', () => $('setup').close());
   for (const id of ['openAbout', 'hiddenInfo']) $(id).addEventListener('click', () => $('about').showModal());
   $('closeAbout').addEventListener('click', () => $('about').close());
+  $('bpmApply').addEventListener('click', applyBpm);
+  $('bpmClose').addEventListener('click', () => $('bpm').close());
   $('logout').addEventListener('click', logout);
   $('back').addEventListener('click', goBack);
   $('toTarget').addEventListener('click', () => show('target'));

@@ -20,6 +20,10 @@ Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt ne
 
 Spotify gibt Songs nur aus eigenen und kollaborativen Playlists heraus. Fremde Playlists erst in der Spotify-App in eine eigene kopieren.
 
+## BPM
+
+Spotify gibt keine BPM mehr heraus. Die Sortierung nutzt ReccoBeats und als Ersatz Deezer. Dafür gehen Song-Kennungen an diese Dienste. Nicht gefundene Songs kommen ans Ende.
+
 ## Feedback
 
 Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/SpotifyKeeper/issues/new).
