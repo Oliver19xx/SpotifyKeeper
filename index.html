@@ -93,7 +93,11 @@ button:disabled { opacity: .5; cursor: default; }
 .seg { display: flex; gap: 20px; flex-wrap: wrap; }
 .seg label, .check { display: flex; gap: 8px; align-items: center; min-height: 32px; }
 .seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
-.sync-head { display: flex; justify-content: space-between; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.head-right { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
+.head-right button.quiet { min-height: 36px; padding: 6px 12px; font-size: .92rem; }
+.sync-body { display: grid; gap: 12px; }
+.sync-body h2 { margin: 0; }
+.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
 .pair .route { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
 .pair .route i { font-style: normal; color: var(--accent); padding: 0 4px; }
@@ -135,7 +139,10 @@ details > .inner { display: grid; gap: 12px; }
 <div class="wrap">
   <header>
     <h1>SpotifyKeeper</h1>
-    <span class="muted" id="who" hidden></span>
+    <div class="head-right">
+      <button class="quiet" id="openSync" type="button" hidden>Sync-Liste</button>
+      <span class="muted" id="who" hidden></span>
+    </div>
   </header>
   <div class="tools" id="installRow" hidden>
     <button class="quiet" id="install" type="button" hidden>App installieren</button>
@@ -143,6 +150,7 @@ details > .inner { display: grid; gap: 12px; }
   </div>
 
   <div class="msg" id="error" role="alert" hidden></div>
+  <div class="msg ok" id="done" role="status" hidden></div>
 
   <section class="intro" id="intro" hidden>
     <p class="lead">Behalte aus jeder Playlist genau die Songs, die du gelikt hast.</p>
@@ -182,16 +190,6 @@ details > .inner { display: grid; gap: 12px; }
     </div>
     </details>
     <div><button id="login" type="button">Bei Spotify anmelden</button></div>
-  </section>
-
-  <section id="sync" hidden>
-    <div class="sync-head">
-      <h2>Sync-Liste</h2>
-      <button id="syncAll" type="button">Alle synchronisieren</button>
-    </div>
-    <p class="muted">Holt neue Likes aus jeder Quelle ins Ziel und entfernt Songs, deren Like du zurückgenommen hast. Songs, die du selbst ins Ziel gelegt hast, bleiben drin.</p>
-    <div class="pairs" id="pairList"></div>
-    <p class="muted" id="syncStatus" role="status" hidden></p>
   </section>
 
   <section id="source" hidden>
@@ -235,7 +233,6 @@ details > .inner { display: grid; gap: 12px; }
     <label class="field" id="existingField" hidden>Playlist
       <select id="existingSelect"></select>
     </label>
-    <div class="msg ok" id="done" hidden></div>
   </section>
 
   <footer>
@@ -243,6 +240,19 @@ details > .inner { display: grid; gap: 12px; }
     <button class="link" id="openChangelog" type="button">Changelog</button>
   </footer>
 </div>
+
+<dialog id="sync" aria-labelledby="syncTitle">
+  <div class="sync-body">
+    <h2 id="syncTitle">Sync-Liste</h2>
+    <p class="muted">Holt neue Likes aus jeder Quelle ins Ziel und entfernt Songs, deren Like du zurückgenommen hast. Songs, die du selbst ins Ziel gelegt hast, bleiben drin.</p>
+    <div class="pairs" id="pairList"></div>
+    <p class="muted" id="syncStatus" role="status" hidden></p>
+    <div class="sync-actions">
+      <button id="syncAll" type="button">Alle synchronisieren</button>
+      <button class="quiet" id="closeSync" type="button">Schließen</button>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="changelog" aria-labelledby="changelogTitle">
   <h2 id="changelogTitle">Neu in SpotifyKeeper</h2>
@@ -265,8 +275,12 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const CHANGELOG = [
+  { version: '1.5.0', items: [
+    'Nach einer Übertragung kannst du sofort die nächste anlegen.',
+    'Die Sync-Liste öffnet sich jetzt als Fenster über den Knopf oben.',
+  ] },
   { version: '1.4.0', items: [
     'Songs, deren Like du zurückgenommen hast, verschwinden beim Sync aus dem Ziel.',
     'Liked du sie wieder, kommen sie beim nächsten Sync zurück.',
@@ -606,6 +620,10 @@ async function transfer() {
     }
     state.partial = new Set();
     const already = uris.length - fresh.length;
+    await loadPlaylists();
+    state.picked = new Set();
+    clearResults();
+    $('sourceFilter').value = '';
     const done = $('done');
     done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. ') + 'Steht jetzt in der Sync-Liste. ');
     const a = document.createElement('a');
@@ -613,9 +631,6 @@ async function transfer() {
     a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'In Spotify öffnen';
     done.append(a);
     done.hidden = false;
-    state.createdId = null;
-    await loadPlaylists();
-    fillExisting();
     done.scrollIntoView({ behavior: 'smooth', block: 'center' });
   } catch (e) {
     showError(e.message + (targetId ? ' ' + added + ' von ' + uris.length + ' Songs sind in „' + targetName + '“. Erneut übertragen lässt vorhandene Songs aus.' : ''));
@@ -623,7 +638,7 @@ async function transfer() {
   } finally {
     state.busy = false;
     $('transfer').textContent = 'Übertragen';
-    updateBar();
+    updateBar(); renderSources();
   }
 }
 
@@ -644,7 +659,9 @@ function upsertPair(src, targetId, targetName, uris, owned) {
 }
 function fmtTime(ts) { return new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }); }
 function renderPairs() {
-  $('sync').hidden = !state.pairs.length;
+  $('openSync').hidden = !state.pairs.length;
+  $('openSync').textContent = 'Sync-Liste · ' + state.pairs.length;
+  if (!state.pairs.length && $('sync').open) $('sync').close();
   $('syncAll').disabled = state.busy;
   const list = $('pairList');
   list.replaceChildren();
@@ -748,11 +765,12 @@ async function syncAll() {
     $('syncStatus').textContent = parts.join(', ') + '.';
     $('syncStatus').hidden = false;
   } catch (e) {
-    showError(e.message);
+    $('syncStatus').textContent = e.message;
+    $('syncStatus').hidden = false;
   } finally {
     state.running = null; state.busy = false;
     if (state.srcs.length) fillExisting();
-    updateBar(); renderPairs();
+    updateBar(); renderPairs(); renderSources();
   }
 }
 
@@ -852,6 +870,8 @@ async function init() {
   $('newName').addEventListener('input', updateBar);
   $('transfer').addEventListener('click', transfer);
   $('syncAll').addEventListener('click', syncAll);
+  $('openSync').addEventListener('click', () => { $('syncStatus').hidden = true; $('sync').showModal(); });
+  $('closeSync').addEventListener('click', () => $('sync').close());
   $('scanStart').addEventListener('click', scan);
 
   const q = new URLSearchParams(location.search);
