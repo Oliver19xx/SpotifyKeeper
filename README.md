@@ -1,5 +1,7 @@
 # SpotifyKeeper
 
+![SpotifyKeeper findet die gelikten Songs einer Playlist und überträgt sie in eine andere](assets/explainer.gif)
+
 Überträgt die gelikten Songs einer Playlist in eine neue oder bestehende Playlist.
 
 Läuft komplett im Browser (Spotify-Login per PKCE, kein Server, kein Client Secret).

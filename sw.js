@@ -1,7 +1,7 @@
 // App-Shell für Offline-Start. Immer zuerst Netz, damit neue Versionen sofort ankommen.
 // Spotify-Anfragen sind fremde Origins und laufen nie durch diesen Worker.
-const CACHE = 'spotifykeeper-v1';
-const SHELL = ['./', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
+const CACHE = 'spotifykeeper-v2';
+const SHELL = ['./', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'assets/explainer.gif', 'assets/explainer.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

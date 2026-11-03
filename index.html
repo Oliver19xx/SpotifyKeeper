@@ -98,6 +98,7 @@ button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; 
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .intro { display: grid; gap: 14px; }
 .lead { font-size: 1.55rem; line-height: 1.2; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; margin: 0; }
+.demo img { display: block; width: 100%; height: auto; border-radius: 8px; }
 .how { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .how li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr); gap: 8px; }
 .how .step-no { line-height: 1.75; }
@@ -131,6 +132,10 @@ details > .inner { display: grid; gap: 12px; }
 
   <section class="intro" id="intro" hidden>
     <p class="lead">Behalte aus jeder Playlist genau die Songs, die du gelikt hast.</p>
+    <picture class="demo">
+      <source srcset="assets/explainer.png" media="(prefers-reduced-motion: reduce)">
+      <img src="assets/explainer.gif" width="720" height="450" alt="Animation: In einer Playlist werden die gelikten Songs erkannt und in eine zweite Playlist übertragen.">
+    </picture>
     <p>SpotifyKeeper gleicht eine Playlist mit deinen Spotify-Likes ab und überträgt die Treffer in eine neue oder bestehende Playlist.</p>
     <ol class="how">
       <li><span class="step-no">1</span><span><b>Playlist wählen.</b> Nimm eine Playlist, in der du Songs gelikt hast.</span></li>
