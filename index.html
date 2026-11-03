@@ -101,6 +101,13 @@ button:disabled { opacity: .5; cursor: default; }
 .pair .state.err { color: var(--bad); }
 .pair .state.new { color: var(--good); }
 .pairs { border-top: 1px solid var(--line); }
+footer { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; color: var(--muted); font-size: .88rem; }
+dialog { width: min(480px, calc(100vw - 32px)); max-height: 80vh; padding: 20px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+dialog::backdrop { background: rgba(10, 8, 14, .6); }
+dialog h2 { margin-bottom: 12px; }
+.release { display: grid; gap: 6px; padding-bottom: 14px; }
+.release h3 { margin: 0; font: 500 .9rem var(--mono); color: var(--accent); }
+.release ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .intro { display: grid; gap: 14px; }
@@ -150,7 +157,7 @@ details > .inner { display: grid; gap: 12px; }
       <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
     </ol>
     <ul class="facts">
-      <li>Jede Übertragung landet in deiner Sync-Liste. Ein Tipp reicht, um neue Likes später nachzuholen.</li>
+      <li>Jede Übertragung landet in deiner Sync-Liste. Ein Tipp reicht, um neue Likes nachzuholen und zurückgenommene zu entfernen.</li>
       <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
       <li>Du brauchst Spotify Premium und eine eigene Client ID aus dem Spotify Dashboard.</li>
       <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
@@ -182,7 +189,7 @@ details > .inner { display: grid; gap: 12px; }
       <h2>Sync-Liste</h2>
       <button id="syncAll" type="button">Alle synchronisieren</button>
     </div>
-    <p class="muted">Holt neue Likes aus jeder Quelle in ihr Ziel. Abgewählte oder im Ziel gelöschte Songs kommen nicht zurück.</p>
+    <p class="muted">Holt neue Likes aus jeder Quelle ins Ziel und entfernt Songs, deren Like du zurückgenommen hast. Songs, die du selbst ins Ziel gelegt hast, bleiben drin.</p>
     <div class="pairs" id="pairList"></div>
     <p class="muted" id="syncStatus" role="status" hidden></p>
   </section>
@@ -230,7 +237,18 @@ details > .inner { display: grid; gap: 12px; }
     </label>
     <div class="msg ok" id="done" hidden></div>
   </section>
+
+  <footer>
+    <span class="mono" id="version"></span>
+    <button class="link" id="openChangelog" type="button">Changelog</button>
+  </footer>
 </div>
+
+<dialog id="changelog" aria-labelledby="changelogTitle">
+  <h2 id="changelogTitle">Neu in SpotifyKeeper</h2>
+  <div id="changelogBody"></div>
+  <button id="closeChangelog" type="button">Alles klar</button>
+</dialog>
 
 <div class="actionbar" id="actionbar" hidden>
   <div>
@@ -244,7 +262,21 @@ details > .inner { display: grid; gap: 12px; }
 const API = 'https://api.spotify.com/v1';
 const ACCOUNTS = 'https://accounts.spotify.com';
 const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public';
-const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60;
+const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
+
+// Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
+const APP_VERSION = '1.4.0';
+const CHANGELOG = [
+  { version: '1.4.0', items: [
+    'Songs, deren Like du zurückgenommen hast, verschwinden beim Sync aus dem Ziel.',
+    'Liked du sie wieder, kommen sie beim nächsten Sync zurück.',
+    'Dieser Changelog erscheint automatisch nach jedem Update.',
+  ] },
+  { version: '1.3.0', items: ['Mehrere Playlists gleichzeitig in ein Ziel übertragen.'] },
+  { version: '1.2.0', items: ['Sync-Liste: Übertragungen merken und neue Likes nachholen.'] },
+  { version: '1.1.0', items: ['Als App installierbar, Startseite erklärt das Tool.'] },
+  { version: '1.0.0', items: ['Erste Version.'] },
+];
 
 const $ = id => document.getElementById(id);
 const redirectUri = location.origin + location.pathname;
@@ -254,7 +286,7 @@ const store = {
   del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
 };
 const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null };
-state.picked = new Set(); state.srcs = []; state.srcLiked = new Map();
+state.picked = new Set(); state.srcs = []; state.srcLiked = new Map(); state.partial = new Set(); state.partialTarget = null;
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
 function chunk(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
@@ -433,7 +465,7 @@ async function targetUris(playlistId) {
 async function addUris(playlistId, uris, onPart) {
   for (const part of chunk(uris, ADD_MAX)) {
     await api('/playlists/' + encodeURIComponent(playlistId) + '/items', { method: 'POST', body: { uris: part } });
-    if (onPart) onPart(part.length);
+    if (onPart) onPart(part);
   }
 }
 async function scan() {
@@ -565,12 +597,14 @@ async function transfer() {
       existingUris = await targetUris(targetId);
     }
     const fresh = uris.filter(u => !existingUris.has(u));
-    await addUris(targetId, fresh, n => { added += n; });
-    const pending = new Set(fresh);
+    if (state.partialTarget !== targetId) { state.partial = new Set(); state.partialTarget = targetId; }
+    await addUris(targetId, fresh, part => { added += part.length; part.forEach(u => state.partial.add(u)); });
+    const pending = new Set(state.partial);
     for (const src of state.srcs) {
       const uris = state.srcLiked.get(src.id);
-      upsertPair(src, targetId, targetName, uris, uris.filter(u => pending.delete(u)).length);
+      upsertPair(src, targetId, targetName, uris, uris.filter(u => pending.delete(u)));
     }
+    state.partial = new Set();
     const already = uris.length - fresh.length;
     const done = $('done');
     done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. ') + 'Steht jetzt in der Sync-Liste. ');
@@ -596,14 +630,16 @@ async function transfer() {
 /* ---------- Sync-Liste ---------- */
 // handled: alle Songs, die für dieses Paar schon entschieden sind. Dazu zählen übertragene,
 // abgewählte und im Ziel vorhandene Songs. So kommen weder abgewählte noch gelöschte zurück.
+// added: nur die Songs, die die App selbst ins Ziel gelegt hat. Nur diese darf sie bei Unlike entfernen.
 const pairsKey = () => 'pairs.' + state.me.id;
 function savePairs() { store.set(pairsKey(), state.pairs); }
-function upsertPair(src, targetId, targetName, uris, added) {
+function upsertPair(src, targetId, targetName, uris, owned) {
   let pair = state.pairs.find(p => p.srcId === src.id && p.targetId === targetId);
-  if (!pair) { pair = { id: src.id + '>' + targetId, srcId: src.id, targetId, handled: [] }; state.pairs.push(pair); }
+  if (!pair) { pair = { id: src.id + '>' + targetId, srcId: src.id, targetId, handled: [], added: [] }; state.pairs.push(pair); }
   pair.srcName = src.name; pair.targetName = targetName;
   pair.handled = [...new Set([...pair.handled, ...uris])];
-  pair.lastSync = Date.now(); pair.lastAdded = added; pair.error = null;
+  pair.added = [...new Set([...pair.added, ...owned])];
+  pair.lastSync = Date.now(); pair.lastAdded = owned.length; pair.lastRemoved = 0; pair.error = null;
   savePairs(); renderPairs();
 }
 function fmtTime(ts) { return new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }); }
@@ -630,22 +666,56 @@ function renderPairs() {
     if (state.running === p.id) st.textContent = 'Wird geprüft…';
     else if (p.error) { st.textContent = p.error; st.classList.add('err'); }
     else {
-      st.textContent = 'Zuletzt ' + fmtTime(p.lastSync) + ' · ' + (p.lastAdded ? songs(p.lastAdded) + ' neu' : 'nichts Neues');
-      if (p.lastAdded) st.classList.add('new');
+      const changes = [];
+      if (p.lastAdded) changes.push(songs(p.lastAdded) + ' neu');
+      if (p.lastRemoved) changes.push(songs(p.lastRemoved) + ' entfernt');
+      st.textContent = 'Zuletzt ' + fmtTime(p.lastSync) + ' · ' + (changes.join(', ') || 'nichts Neues');
+      if (changes.length) st.classList.add('new');
     }
     st.style.gridColumn = '1 / -1';
     row.append(route, remove, st);
     list.append(row);
   }
 }
+async function checkLikes(uris, cache) {
+  for (const part of chunk(uris.filter(u => !cache.has(u)), CONTAINS_MAX)) {
+    const flags = await api('/me/library/contains?' + new URLSearchParams({ uris: part.join(',') }));
+    if (!Array.isArray(flags) || flags.length !== part.length) throw new Error('Spotify hat beim Like-Abgleich eine unerwartete Antwort geliefert. Es wurde nichts entfernt.');
+    part.forEach((u, i) => cache.set(u, flags[i] === true));
+  }
+}
+async function pruneUnliked(p, cache, safetyStop) {
+  if (!p.added.length) return 0;
+  const gone = p.added.filter(u => cache.get(u) === false);
+  if (!gone.length) return 0;
+  if (safetyStop) throw new Error('Spotify meldet alle übertragenen Songs als nicht gelikt. Zur Sicherheit wurde nichts entfernt.');
+  const existing = await targetUris(p.targetId);
+  const toRemove = gone.filter(u => existing.has(u));
+  for (const part of chunk(toRemove, ADD_MAX)) {
+    await api('/playlists/' + encodeURIComponent(p.targetId) + '/items', { method: 'DELETE', body: { items: part.map(uri => ({ uri })) } });
+  }
+  // Von der App entfernte Songs dürfen bei erneutem Like zurückkommen, von Hand gelöschte nicht.
+  const goneSet = new Set(gone), removedSet = new Set(toRemove);
+  for (const q of state.pairs) {
+    if (q.targetId !== p.targetId) continue;
+    q.added = q.added.filter(u => !goneSet.has(u));
+    q.handled = q.handled.filter(u => !removedSet.has(u));
+  }
+  return toRemove.length;
+}
 async function syncAll() {
   if (state.busy) return;
   state.busy = true; updateBar(); renderPairs();
   showError(''); $('syncStatus').hidden = true;
   const cache = new Map();
-  let total = 0, failed = 0;
+  const likeCache = new Map();
+  let total = 0, totalRemoved = 0, failed = 0;
   try {
     await loadPlaylists();
+    // Bremse gegen Fehlantworten: Sind plötzlich alle Songs ungelikt, wird nichts gelöscht.
+    const allAdded = [...new Set(state.pairs.flatMap(p => p.added))];
+    await checkLikes(allAdded, likeCache);
+    const safetyStop = allAdded.length >= SAFETY_MIN && allAdded.every(u => likeCache.get(u) === false);
     for (const p of state.pairs) {
       state.running = p.id; renderPairs();
       try {
@@ -654,12 +724,15 @@ async function syncAll() {
         if (!ownOrCollab(src)) throw new Error(p.srcName + ' ist nicht mehr lesbar.');
         p.srcName = src.name; p.targetName = tgt.name;
         if (!cache.has(p.srcId)) cache.set(p.srcId, await likedIn(p.srcId));
+        const removed = await pruneUnliked(p, likeCache, safetyStop);
+        totalRemoved += removed;
+        p.lastRemoved = removed;
         const handled = new Set(p.handled);
         const newUris = cache.get(p.srcId).liked.map(t => t.uri).filter(u => !handled.has(u));
         let added = 0;
         if (newUris.length) {
           const existing = await targetUris(p.targetId);
-          await addUris(p.targetId, newUris.filter(u => !existing.has(u)), n => { added += n; total += n; });
+          await addUris(p.targetId, newUris.filter(u => !existing.has(u)), part => { added += part.length; total += part.length; p.added.push(...part); });
           p.handled.push(...newUris);
         }
         p.lastSync = Date.now(); p.lastAdded = added; p.error = null;
@@ -670,7 +743,7 @@ async function syncAll() {
       state.running = null;
       savePairs(); renderPairs();
     }
-    const parts = [songs(total) + ' übertragen'];
+    const parts = [songs(total) + ' übertragen', songs(totalRemoved) + ' entfernt'];
     if (failed) parts.push(failed + (failed === 1 ? ' Eintrag fehlgeschlagen' : ' Einträge fehlgeschlagen'));
     $('syncStatus').textContent = parts.join(', ') + '.';
     $('syncStatus').hidden = false;
@@ -701,10 +774,46 @@ function showSetup() {
   $('login').disabled = !!bad;
   if (bad) $('setupDetails').open = true;
 }
+/* ---------- Changelog ---------- */
+function isNewer(a, b) {
+  const x = a.split('.').map(Number), y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+}
+function openChangelog(entries, title) {
+  $('changelogTitle').textContent = title;
+  const body = $('changelogBody');
+  body.replaceChildren();
+  for (const e of entries) {
+    const box = document.createElement('div'); box.className = 'release';
+    const h = document.createElement('h3'); h.textContent = 'Version ' + e.version;
+    const ul = document.createElement('ul');
+    for (const item of e.items) { const li = document.createElement('li'); li.textContent = item; ul.append(li); }
+    box.append(h, ul);
+    body.append(box);
+  }
+  if (!$('changelog').open) $('changelog').showModal();
+}
+function showChangelogIfUpdated() {
+  // Wer schon eingerichtet war, bevor es Versionen gab, kennt alles bis 1.3.0.
+  const seen = store.get('seenVersion') || (store.get('clientId') ? '1.3.0' : null);
+  store.set('seenVersion', APP_VERSION);
+  if (!seen) return;
+  const entries = CHANGELOG.filter(e => isNewer(e.version, seen));
+  if (entries.length) openChangelog(entries, 'Neu in SpotifyKeeper');
+}
 function setupInstall() {
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // Eine installierte App bleibt oft tagelang offen, also bei jeder Rückkehr nach Updates schauen.
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloading && !state.busy && !state.tracks.length) { reloading = true; location.reload(); }
+    });
   }
   if (standalone) return;
   let promptEvent = null;
@@ -726,6 +835,10 @@ function setupInstall() {
 }
 async function init() {
   setupInstall();
+  $('version').textContent = 'Version ' + APP_VERSION;
+  $('openChangelog').addEventListener('click', () => openChangelog(CHANGELOG, 'Changelog'));
+  $('closeChangelog').addEventListener('click', () => $('changelog').close());
+  showChangelogIfUpdated();
   $('login').addEventListener('click', startLogin);
   $('copyRedirect').addEventListener('click', async e => {
     try { await navigator.clipboard.writeText(redirectUri); e.target.textContent = 'Kopiert'; }
@@ -762,7 +875,7 @@ async function init() {
     out.addEventListener('click', logout);
     who.append(out);
     $('source').hidden = false;
-    state.pairs = store.get(pairsKey()) || [];
+    state.pairs = (store.get(pairsKey()) || []).map(p => ({ added: [], ...p }));
     renderPairs();
     await loadPlaylists();
   } catch (e) {

@@ -8,7 +8,7 @@ Läuft komplett im Browser (Spotify-Login per PKCE, kein Server, kein Client Sec
 
 Lässt sich als PWA installieren.
 
-Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt neue Likes in die gewählten Ziele. Die Liste liegt im Browser, also pro Gerät.
+Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt neue Likes in die gewählten Ziele und entfernt zurückgenommene. Entfernt werden nur Songs, die die App selbst ins Ziel gelegt hat. Die Liste liegt im Browser, also pro Gerät.
 
 ## Einrichtung
 
@@ -19,3 +19,7 @@ Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt ne
 ## Einschränkung
 
 Spotify gibt Songs nur aus eigenen und kollaborativen Playlists heraus. Fremde Playlists erst in der Spotify-App in eine eigene kopieren.
+
+## Release
+
+In `index.html` `APP_VERSION` erhöhen und `CHANGELOG` ergänzen, in `sw.js` `CACHE` anpassen. Nutzer sehen den Changelog beim nächsten Start automatisch.
