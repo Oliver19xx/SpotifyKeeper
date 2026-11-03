@@ -92,6 +92,8 @@ button:disabled { opacity: .5; cursor: default; }
 .name b { font-weight: 500; }
 .name span { color: var(--muted); font-size: .88rem; }
 .meta { font: .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.likes { color: var(--muted); }
+.likes.fresh { color: var(--accent); }
 .stats { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: baseline; }
 .stats strong { font: 500 1.5rem var(--mono); color: var(--accent); }
 .tools { display: flex; gap: 8px 16px; flex-wrap: wrap; }
@@ -308,8 +310,9 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 const CHANGELOG = [
+  { version: '1.8.0', items: ['Hakst du eine Playlist an, siehst du neben der Songzahl auch ihre Likes. Die Zahl bleibt gespeichert.'] },
   { version: '1.7.0', items: [
     'Alles passt ohne Scrollen auf den Bildschirm, ein Schritt pro Ansicht.',
     'Version, Changelog und Feedback stehen jetzt oben.',
@@ -341,6 +344,7 @@ const store = {
   del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
 };
 const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null, view: 'source' };
+state.counting = new Set(); state.fresh = new Set(); state.countRunning = false; state.refreshing = null;
 state.picked = new Set(); state.srcs = []; state.srcLiked = new Map(); state.partial = new Set(); state.partialTarget = null;
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
@@ -385,7 +389,11 @@ async function finishLogin(code, returnedState) {
 function refreshSession() {
   const s = store.get('session');
   if (!s || !s.refresh) { logout(); throw new Error('Die Anmeldung ist abgelaufen. Bitte neu anmelden.'); }
-  return tokenRequest({ grant_type: 'refresh_token', refresh_token: s.refresh, client_id: store.get('clientId') });
+  if (!state.refreshing) {
+    state.refreshing = tokenRequest({ grant_type: 'refresh_token', refresh_token: s.refresh, client_id: store.get('clientId') })
+      .finally(() => { state.refreshing = null; });
+  }
+  return state.refreshing;
 }
 function logout() { store.del('session'); location.href = redirectUri; }
 
@@ -448,6 +456,56 @@ function nameEl(title, sub) {
 function metaEl(text) { const m = document.createElement('span'); m.className = 'meta'; m.textContent = text; return m; }
 function smallest(images) { return images && images.length ? images[images.length - 1].url : ''; }
 
+/* Like-Zahlen: teuer, also nur für angehakte Playlists zählen und den letzten Stand merken. */
+const countsKey = () => 'likeCounts.' + state.me.id;
+function savedCount(id) { return (store.get(countsKey()) || {})[id]; }
+function saveCount(id, n) {
+  const all = store.get(countsKey()) || {};
+  all[id] = { n, at: Date.now() };
+  store.set(countsKey(), all);
+  state.fresh.add(id);
+  paintCount(id);
+}
+function fillLikes(el, id) {
+  const saved = savedCount(id);
+  el.textContent = state.counting.has(id) ? '♥ …' : saved ? '♥ ' + saved.n : '';
+  el.className = 'likes' + (state.fresh.has(id) ? ' fresh' : '');
+  el.title = saved && !state.fresh.has(id) ? 'Letzter Stand vom ' + fmtTime(saved.at) : '';
+}
+function countEl(id, total) {
+  const box = metaEl(total == null ? '' : String(total));
+  const likes = document.createElement('span');
+  likes.dataset.countFor = id;
+  fillLikes(likes, id);
+  box.append(' ', likes);
+  return box;
+}
+function paintCount(id) {
+  for (const el of document.querySelectorAll('[data-count-for]')) if (el.dataset.countFor === id) fillLikes(el, id);
+}
+function queueCount(id) {
+  if (state.fresh.has(id) || state.counting.has(id)) return;
+  state.counting.add(id);
+  paintCount(id);
+  runCounts();
+}
+async function runCounts() {
+  if (state.countRunning) return;
+  state.countRunning = true;
+  while (state.counting.size) {
+    const id = [...state.counting][0];
+    try {
+      if (state.picked.has(id)) {
+        const r = await likedIn(id);
+        state.counting.delete(id);
+        saveCount(id, r.liked.length);
+      }
+    } catch {}
+    state.counting.delete(id);
+    paintCount(id);
+  }
+  state.countRunning = false;
+}
 function renderSources() {
   const q = $('sourceFilter').value.trim().toLowerCase();
   const list = $('sourceList');
@@ -461,11 +519,12 @@ function renderSources() {
     box.setAttribute('aria-label', p.name);
     box.addEventListener('change', () => {
       box.checked ? state.picked.add(p.id) : state.picked.delete(p.id);
+      if (box.checked) queueCount(p.id);
       row.classList.toggle('sel', box.checked);
       clearResults(); updateScanButton();
     });
     const count = (p.items || p.tracks || {}).total;
-    row.append(box, coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), metaEl(count == null ? '' : String(count)));
+    row.append(box, coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), countEl(p.id, count));
     list.append(row);
   }
   if (!shown.length) { const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px'; e.textContent = q ? 'Keine Playlist passt zum Filter.' : 'Keine eigenen Playlists gefunden.'; list.append(e); }
@@ -535,6 +594,7 @@ async function scan() {
   const playlists = pickedPlaylists();
   if (state.busy || !playlists.length) return;
   state.busy = true;
+  state.counting.clear();   // Der Abgleich liefert die Zahlen ohnehin
   clearResults(); renderSources();
   const many = playlists.length > 1;
   state.srcs = playlists;
@@ -561,6 +621,7 @@ async function scan() {
         else byUri.set(t.uri, { ...t, srcNames: [pl.name] });
       }
       state.srcLiked.set(pl.id, r.liked.map(t => t.uri));
+      saveCount(pl.id, r.liked.length);
     }
     const liked = [...byUri.values()];
     state.tracks = liked;
