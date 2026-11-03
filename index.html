@@ -51,7 +51,8 @@ header { flex: none; display: grid; gap: 2px; padding-top: calc(12px + env(safe-
 h1 { margin: 0; font-size: 1.5rem; line-height: 1.1; letter-spacing: -.02em; }
 h2 { margin: 0; font-size: 1.15rem; line-height: 1.25; text-wrap: balance; }
 section { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-#target { overflow-y: auto; }
+#existingField { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+#targetFilter, #newFields, .seg { flex: none; }
 .step-head { display: flex; gap: 10px; align-items: baseline; }
 .step-no { font: 500 .85rem var(--mono); color: var(--accent); }
 p { margin: 0; }
@@ -229,9 +230,10 @@ dialog::backdrop { background: rgba(10, 8, 14, .6); }
       <label class="field">Name <input type="text" id="newName" placeholder="z. B. Liked Bounce"></label>
       <label class="check"><input type="checkbox" id="newPublic"> Öffentlich</label>
     </div>
-    <label class="field" id="existingField" hidden>Playlist
-      <select id="existingSelect"></select>
-    </label>
+    <div id="existingField" hidden>
+      <input type="search" id="targetFilter" aria-label="Ziel-Playlists filtern" placeholder="Playlists filtern">
+      <div class="list" id="targetList"></div>
+    </div>
   </section>
 
 </div>
@@ -323,11 +325,15 @@ dialog::backdrop { background: rgba(10, 8, 14, .6); }
 const API = 'https://api.spotify.com/v1';
 const ACCOUNTS = 'https://accounts.spotify.com';
 const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public';
-const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
+const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5, LIKES_MAX_AGE = 5 * 60 * 1000;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const CHANGELOG = [
+  { version: '1.10.0', items: [
+    'Ziel-Playlists wählst du jetzt aus einer filterbaren Liste.',
+    'Likes werden beim Anhaken geladen und nicht noch einmal geprüft.',
+  ] },
   { version: '1.9.0', items: ['In der Sync-Liste kannst du eine Ziel-Playlist nach BPM sortieren, von niedrig nach hoch.'] },
   { version: '1.8.0', items: ['Hakst du eine Playlist an, siehst du neben der Songzahl auch ihre Likes. Die Zahl bleibt gespeichert.'] },
   { version: '1.7.0', items: [
@@ -362,6 +368,7 @@ const store = {
 };
 const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null, view: 'source' };
 state.counting = new Set(); state.fresh = new Set(); state.countRunning = false; state.refreshing = null;
+state.likedData = new Map(); state.targetId = null;
 state.picked = new Set(); state.srcs = []; state.srcLiked = new Map(); state.partial = new Set(); state.partialTarget = null;
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
@@ -473,7 +480,7 @@ function nameEl(title, sub) {
 function metaEl(text) { const m = document.createElement('span'); m.className = 'meta'; m.textContent = text; return m; }
 function smallest(images) { return images && images.length ? images[images.length - 1].url : ''; }
 
-/* Like-Zahlen: teuer, also nur für angehakte Playlists zählen und den letzten Stand merken. */
+/* Likes werden beim Anhaken geladen und im Abgleich weiterverwendet. Die Zahl bleibt als letzter Stand gespeichert. */
 const countsKey = () => 'likeCounts.' + state.me.id;
 function savedCount(id) { return (store.get(countsKey()) || {})[id]; }
 function saveCount(id, n) {
@@ -501,7 +508,7 @@ function paintCount(id) {
   for (const el of document.querySelectorAll('[data-count-for]')) if (el.dataset.countFor === id) fillLikes(el, id);
 }
 function queueCount(id) {
-  if (state.fresh.has(id) || state.counting.has(id)) return;
+  if (state.counting.has(id)) return;
   state.counting.add(id);
   paintCount(id);
   runCounts();
@@ -514,12 +521,14 @@ async function runCounts() {
     try {
       if (state.picked.has(id)) {
         const r = await likedIn(id);
+        if (state.picked.has(id)) state.likedData.set(id, { r, at: Date.now() });
         state.counting.delete(id);
         saveCount(id, r.liked.length);
       }
     } catch {}
     state.counting.delete(id);
     paintCount(id);
+    updateScanButton();
   }
   state.countRunning = false;
 }
@@ -535,8 +544,8 @@ function renderSources() {
     box.type = 'checkbox'; box.checked = state.picked.has(p.id); box.disabled = state.busy;
     box.setAttribute('aria-label', p.name);
     box.addEventListener('change', () => {
-      box.checked ? state.picked.add(p.id) : state.picked.delete(p.id);
-      if (box.checked) queueCount(p.id);
+      if (box.checked) { state.picked.add(p.id); queueCount(p.id); }
+      else { state.picked.delete(p.id); state.likedData.delete(p.id); }
       row.classList.toggle('sel', box.checked);
       clearResults(); updateScanButton();
     });
@@ -554,8 +563,9 @@ function renderSources() {
 function pickedPlaylists() { return state.playlists.filter(p => state.picked.has(p.id) && ownOrCollab(p)); }
 function updateScanButton() {
   const n = pickedPlaylists().length;
-  $('scanStart').disabled = state.busy || !n;
-  $('scanStart').textContent = n > 1 ? n + ' Playlists abgleichen' : 'Likes finden';
+  const loading = pickedPlaylists().some(p => state.counting.has(p.id));
+  $('scanStart').disabled = state.busy || !n || loading;
+  $('scanStart').textContent = loading ? 'Lade Likes…' : n > 1 ? n + ' Playlists abgleichen' : 'Likes finden';
 }
 function show(view) {
   state.view = view;
@@ -611,7 +621,6 @@ async function scan() {
   const playlists = pickedPlaylists();
   if (state.busy || !playlists.length) return;
   state.busy = true;
-  state.counting.clear();   // Der Abgleich liefert die Zahlen ohnehin
   clearResults(); renderSources();
   const many = playlists.length > 1;
   state.srcs = playlists;
@@ -624,7 +633,8 @@ async function scan() {
       const prefix = many ? pl.name + ': ' : '';
       let r;
       try {
-        r = await likedIn(pl.id,
+        const loaded = state.likedData.get(pl.id);
+        r = loaded && Date.now() - loaded.at < LIKES_MAX_AGE ? loaded.r : await likedIn(pl.id,
           (done, total) => setProgress(prefix + 'Lese Playlist, ' + done + ' von ' + total, done, total),
           (done, total) => setProgress(prefix + 'Gleiche mit Likes ab, ' + done + ' von ' + total, done, total));
       } catch (e) {
@@ -689,16 +699,30 @@ function selectAll(on) {
 }
 
 /* ---------- Schritt 3: Übertragen ---------- */
+function targetChoices() { return state.playlists.filter(p => ownOrCollab(p) && !state.srcs.some(x => x.id === p.id)); }
 function fillExisting() {
-  const sel = $('existingSelect');
-  const keep = sel.value;
-  sel.replaceChildren();
-  for (const p of state.playlists) {
-    if (!ownOrCollab(p) || state.srcs.some(x => x.id === p.id)) continue;
-    sel.append(new Option(p.name, p.id));
+  const choices = targetChoices();
+  if (!choices.some(p => p.id === state.targetId)) state.targetId = null;
+  $('modeExisting').disabled = !choices.length;
+  renderTargets();
+}
+function renderTargets() {
+  const q = $('targetFilter').value.trim().toLowerCase();
+  const list = $('targetList');
+  list.replaceChildren();
+  const shown = targetChoices().filter(p => p.name.toLowerCase().includes(q) || p.id === state.targetId);
+  for (const p of shown) {
+    const row = document.createElement('label');
+    row.className = 'row' + (p.id === state.targetId ? ' sel' : '');
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'targetPick'; radio.checked = p.id === state.targetId;
+    radio.setAttribute('aria-label', p.name);
+    radio.addEventListener('change', () => { state.targetId = p.id; renderTargets(); updateBar(); });
+    const count = (p.items || p.tracks || {}).total;
+    row.append(radio, coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), metaEl(count == null ? '' : String(count)));
+    list.append(row);
   }
-  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
-  $('modeExisting').disabled = !sel.options.length;
+  if (!shown.length) { const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px'; e.textContent = 'Keine Playlist passt zum Filter.'; list.append(e); }
 }
 function targetMode() { return $('modeNew').checked ? 'new' : 'existing'; }
 function syncMode() {
@@ -716,7 +740,8 @@ function updateBar() {
   $('toTarget').hidden = v !== 'scan' || !state.tracks.length;
   $('toTarget').disabled = state.busy || !n;
   $('transfer').hidden = v !== 'target';
-  $('transfer').disabled = state.busy || !n || (targetMode() === 'new' && !state.createdId && !$('newName').value.trim());
+  const noTarget = targetMode() === 'new' ? (!state.createdId && !$('newName').value.trim()) : !state.targetId;
+  $('transfer').disabled = state.busy || !n || noTarget;
   $('selCount').textContent = v !== 'source' && state.tracks.length ? songs(n) : '';
 }
 function goBack() {
@@ -742,7 +767,7 @@ async function transfer() {
       state.createdName = targetName;
     } else {
       if (targetMode() === 'new') { targetId = state.createdId; targetName = state.createdName; }
-      else { targetId = $('existingSelect').value; targetName = $('existingSelect').selectedOptions[0].textContent; }
+      else { targetId = state.targetId; targetName = state.playlists.find(p => p.id === targetId).name; }
       existingUris = await targetUris(targetId);
     }
     const fresh = uris.filter(u => !existingUris.has(u));
@@ -757,6 +782,9 @@ async function transfer() {
     const already = uris.length - fresh.length;
     await loadPlaylists();
     state.picked = new Set();
+    state.likedData = new Map();
+    state.targetId = null;
+    $('targetFilter').value = '';
     clearResults();
     show('source');
     $('sourceFilter').value = '';
@@ -1188,6 +1216,7 @@ async function init() {
   $('modeNew').addEventListener('change', syncMode);
   $('modeExisting').addEventListener('change', syncMode);
   $('newName').addEventListener('input', updateBar);
+  $('targetFilter').addEventListener('input', renderTargets);
   $('transfer').addEventListener('click', transfer);
   $('syncAll').addEventListener('click', syncAll);
   $('openSync').addEventListener('click', () => { $('syncStatus').hidden = true; $('sync').showModal(); });
