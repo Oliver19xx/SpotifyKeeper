@@ -94,6 +94,14 @@ button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; 
 .seg { display: flex; gap: 20px; flex-wrap: wrap; }
 .seg label, .check { display: flex; gap: 8px; align-items: center; min-height: 32px; }
 .seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.sync-head { display: flex; justify-content: space-between; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.pair .route { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.pair .route i { font-style: normal; color: var(--accent); padding: 0 4px; }
+.pair .state { font-size: .88rem; color: var(--muted); }
+.pair .state.err { color: var(--bad); }
+.pair .state.new { color: var(--good); }
+.pairs { border-top: 1px solid var(--line); }
 .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .intro { display: grid; gap: 14px; }
@@ -143,6 +151,7 @@ details > .inner { display: grid; gap: 12px; }
       <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
     </ol>
     <ul class="facts">
+      <li>Jede Übertragung landet in deiner Sync-Liste. Ein Tipp reicht, um neue Likes später nachzuholen.</li>
       <li>Fremde Playlists musst du erst in der Spotify-App in eine eigene kopieren. Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus.</li>
       <li>Du brauchst Spotify Premium und eine eigene Client ID aus dem Spotify Dashboard.</li>
       <li>Alles läuft in deinem Browser, ohne Server. Deine Anmeldung bleibt auf diesem Gerät.</li>
@@ -167,6 +176,16 @@ details > .inner { display: grid; gap: 12px; }
     </div>
     </details>
     <div><button id="login" type="button">Bei Spotify anmelden</button></div>
+  </section>
+
+  <section id="sync" hidden>
+    <div class="sync-head">
+      <h2>Sync-Liste</h2>
+      <button id="syncAll" type="button">Alle synchronisieren</button>
+    </div>
+    <p class="muted">Holt neue Likes aus jeder Quelle in ihr Ziel. Abgewählte oder im Ziel gelöschte Songs kommen nicht zurück.</p>
+    <div class="pairs" id="pairList"></div>
+    <p class="muted" id="syncStatus" role="status" hidden></p>
   </section>
 
   <section id="source" hidden>
@@ -234,7 +253,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('spotifykeeper.' + k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
 };
-const state = { me: null, playlists: [], src: null, tracks: [], selected: new Set(), createdId: null, busy: false };
+const state = { me: null, playlists: [], src: null, tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null };
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
 function chunk(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
@@ -366,6 +385,37 @@ function setProgress(text, done, total) {
   $('progressText').textContent = text;
   $('progressBar').style.width = (total ? Math.min(100, done / total * 100) : 0) + '%';
 }
+async function likedIn(playlistId, onRead, onCheck) {
+  const rows = await getAll('/playlists/' + encodeURIComponent(playlistId) + '/items?additional_types=track&limit=' + PAGE_MAX, onRead);
+  const seen = new Set(), candidates = [];
+  let skipped = 0, dupes = 0;
+  for (const row of rows) {
+    const t = row && (row.item || row.track);
+    if (!t || row.is_local || t.is_local || t.type !== 'track' || !t.uri) { skipped++; continue; }
+    if (seen.has(t.uri)) { dupes++; continue; }
+    seen.add(t.uri); candidates.push(t);
+  }
+  const liked = [];
+  let checked = 0;
+  for (const part of chunk(candidates, CONTAINS_MAX)) {
+    const flags = await api('/me/library/contains?' + new URLSearchParams({ uris: part.map(t => t.uri).join(',') }));
+    if (!Array.isArray(flags) || flags.length !== part.length) throw new Error('Spotify hat beim Like-Abgleich eine unerwartete Antwort geliefert.');
+    part.forEach((t, i) => { if (flags[i]) liked.push(t); });
+    checked += part.length;
+    if (onCheck) onCheck(checked, candidates.length);
+  }
+  return { liked, candidates, skipped, dupes };
+}
+async function targetUris(playlistId) {
+  const rows = await getAll('/playlists/' + encodeURIComponent(playlistId) + '/items?additional_types=track&limit=' + PAGE_MAX);
+  return new Set(rows.map(r => r && (r.item || r.track)).filter(Boolean).map(t => t.uri));
+}
+async function addUris(playlistId, uris, onPart) {
+  for (const part of chunk(uris, ADD_MAX)) {
+    await api('/playlists/' + encodeURIComponent(playlistId) + '/items', { method: 'POST', body: { uris: part } });
+    if (onPart) onPart(part.length);
+  }
+}
 async function scan(playlist) {
   if (state.busy) return;
   state.busy = true;
@@ -376,25 +426,9 @@ async function scan(playlist) {
   $('scanTitle').textContent = 'Likes in ' + playlist.name;
   $('scan').scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
-    const rows = await getAll('/playlists/' + encodeURIComponent(playlist.id) + '/items?additional_types=track&limit=' + PAGE_MAX,
-      (done, total) => setProgress('Lese Playlist: ' + done + ' von ' + total, done, total));
-    const seen = new Set(), candidates = [];
-    let skipped = 0, dupes = 0;
-    for (const row of rows) {
-      const t = row && (row.item || row.track);
-      if (!t || row.is_local || t.is_local || t.type !== 'track' || !t.uri) { skipped++; continue; }
-      if (seen.has(t.uri)) { dupes++; continue; }
-      seen.add(t.uri); candidates.push(t);
-    }
-    const liked = [];
-    let checked = 0;
-    for (const part of chunk(candidates, CONTAINS_MAX)) {
-      const flags = await api('/me/library/contains?' + new URLSearchParams({ uris: part.map(t => t.uri).join(',') }));
-      if (!Array.isArray(flags) || flags.length !== part.length) throw new Error('Spotify hat beim Like-Abgleich eine unerwartete Antwort geliefert.');
-      part.forEach((t, i) => { if (flags[i]) liked.push(t); });
-      checked += part.length;
-      setProgress('Gleiche mit Likes ab: ' + checked + ' von ' + candidates.length, checked, candidates.length);
-    }
+    const { liked, candidates, skipped, dupes } = await likedIn(playlist.id,
+      (done, total) => setProgress('Lese Playlist: ' + done + ' von ' + total, done, total),
+      (done, total) => setProgress('Gleiche mit Likes ab: ' + done + ' von ' + total, done, total));
     state.tracks = liked;
     state.selected = new Set(liked.map(t => t.uri));
     $('progress').hidden = true;
@@ -463,6 +497,7 @@ function syncMode() {
   updateBar();
 }
 function updateBar() {
+  $('syncAll').disabled = state.busy;
   const n = state.selected.size;
   $('actionbar').hidden = !state.tracks.length;
   $('selCount').textContent = songs(n);
@@ -487,17 +522,14 @@ async function transfer() {
     } else {
       if (targetMode() === 'new') { targetId = state.createdId; targetName = state.createdName; }
       else { targetId = $('existingSelect').value; targetName = $('existingSelect').selectedOptions[0].textContent; }
-      const rows = await getAll('/playlists/' + encodeURIComponent(targetId) + '/items?additional_types=track&limit=' + PAGE_MAX);
-      existingUris = new Set(rows.map(r => r && (r.item || r.track)).filter(Boolean).map(t => t.uri));
+      existingUris = await targetUris(targetId);
     }
     const fresh = uris.filter(u => !existingUris.has(u));
-    for (const part of chunk(fresh, ADD_MAX)) {
-      await api('/playlists/' + encodeURIComponent(targetId) + '/items', { method: 'POST', body: { uris: part } });
-      added += part.length;
-    }
+    await addUris(targetId, fresh, n => { added += n; });
+    upsertPair(state.src, targetId, targetName, state.tracks.map(t => t.uri), added);
     const already = uris.length - fresh.length;
     const done = $('done');
-    done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. '));
+    done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. ') + 'Steht jetzt in der Sync-Liste. ');
     const a = document.createElement('a');
     a.href = 'https://open.spotify.com/playlist/' + encodeURIComponent(targetId);
     a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'In Spotify öffnen';
@@ -514,6 +546,96 @@ async function transfer() {
     state.busy = false;
     $('transfer').textContent = 'Übertragen';
     updateBar();
+  }
+}
+
+/* ---------- Sync-Liste ---------- */
+// handled: alle Songs, die für dieses Paar schon entschieden sind. Dazu zählen übertragene,
+// abgewählte und im Ziel vorhandene Songs. So kommen weder abgewählte noch gelöschte zurück.
+const pairsKey = () => 'pairs.' + state.me.id;
+function savePairs() { store.set(pairsKey(), state.pairs); }
+function upsertPair(src, targetId, targetName, uris, added) {
+  let pair = state.pairs.find(p => p.srcId === src.id && p.targetId === targetId);
+  if (!pair) { pair = { id: src.id + '>' + targetId, srcId: src.id, targetId, handled: [] }; state.pairs.push(pair); }
+  pair.srcName = src.name; pair.targetName = targetName;
+  pair.handled = [...new Set([...pair.handled, ...uris])];
+  pair.lastSync = Date.now(); pair.lastAdded = added; pair.error = null;
+  savePairs(); renderPairs();
+}
+function fmtTime(ts) { return new Date(ts).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }); }
+function renderPairs() {
+  $('sync').hidden = !state.pairs.length;
+  $('syncAll').disabled = state.busy;
+  const list = $('pairList');
+  list.replaceChildren();
+  for (const p of state.pairs) {
+    const row = document.createElement('div'); row.className = 'pair';
+    const route = document.createElement('div'); route.className = 'route';
+    const arrow = document.createElement('i'); arrow.textContent = '→';
+    route.append(p.srcName, arrow, p.targetName);
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'link'; remove.textContent = 'Entfernen';
+    remove.setAttribute('aria-label', 'Entfernen: ' + p.srcName + ' nach ' + p.targetName);
+    remove.addEventListener('click', () => {
+      if (remove.dataset.armed) {
+        state.pairs = state.pairs.filter(x => x !== p);
+        savePairs(); renderPairs();
+      } else { remove.dataset.armed = '1'; remove.textContent = 'Wirklich entfernen?'; }
+    });
+    const st = document.createElement('div'); st.className = 'state';
+    if (state.running === p.id) st.textContent = 'Wird geprüft…';
+    else if (p.error) { st.textContent = p.error; st.classList.add('err'); }
+    else {
+      st.textContent = 'Zuletzt ' + fmtTime(p.lastSync) + ' · ' + (p.lastAdded ? songs(p.lastAdded) + ' neu' : 'nichts Neues');
+      if (p.lastAdded) st.classList.add('new');
+    }
+    st.style.gridColumn = '1 / -1';
+    row.append(route, remove, st);
+    list.append(row);
+  }
+}
+async function syncAll() {
+  if (state.busy) return;
+  state.busy = true; updateBar(); renderPairs();
+  showError(''); $('syncStatus').hidden = true;
+  const cache = new Map();
+  let total = 0, failed = 0;
+  try {
+    await loadPlaylists();
+    for (const p of state.pairs) {
+      state.running = p.id; renderPairs();
+      try {
+        const src = state.playlists.find(x => x.id === p.srcId), tgt = state.playlists.find(x => x.id === p.targetId);
+        if (!src || !tgt) throw new Error((src ? p.targetName : p.srcName) + ' ist nicht mehr in deiner Bibliothek. Entferne diesen Eintrag.');
+        if (!ownOrCollab(src)) throw new Error(p.srcName + ' ist nicht mehr lesbar.');
+        p.srcName = src.name; p.targetName = tgt.name;
+        if (!cache.has(p.srcId)) cache.set(p.srcId, await likedIn(p.srcId));
+        const handled = new Set(p.handled);
+        const newUris = cache.get(p.srcId).liked.map(t => t.uri).filter(u => !handled.has(u));
+        let added = 0;
+        if (newUris.length) {
+          const existing = await targetUris(p.targetId);
+          await addUris(p.targetId, newUris.filter(u => !existing.has(u)), n => { added += n; total += n; });
+          p.handled.push(...newUris);
+        }
+        p.lastSync = Date.now(); p.lastAdded = added; p.error = null;
+      } catch (e) {
+        failed++;
+        p.error = e.message;
+      }
+      state.running = null;
+      savePairs(); renderPairs();
+    }
+    const parts = [songs(total) + ' übertragen'];
+    if (failed) parts.push(failed + (failed === 1 ? ' Eintrag fehlgeschlagen' : ' Einträge fehlgeschlagen'));
+    $('syncStatus').textContent = parts.join(', ') + '.';
+    $('syncStatus').hidden = false;
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    state.running = null; state.busy = false;
+    if (state.src) fillExisting();
+    updateBar(); renderPairs();
   }
 }
 
@@ -572,6 +694,7 @@ async function init() {
   $('modeExisting').addEventListener('change', syncMode);
   $('newName').addEventListener('input', updateBar);
   $('transfer').addEventListener('click', transfer);
+  $('syncAll').addEventListener('click', syncAll);
 
   const q = new URLSearchParams(location.search);
   try {
@@ -594,6 +717,8 @@ async function init() {
     out.addEventListener('click', logout);
     who.append(out);
     $('source').hidden = false;
+    state.pairs = store.get(pairsKey()) || [];
+    renderPairs();
     await loadPlaylists();
   } catch (e) {
     showError(e.message);

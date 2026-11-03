@@ -8,6 +8,8 @@ Läuft komplett im Browser (Spotify-Login per PKCE, kein Server, kein Client Sec
 
 Lässt sich als PWA installieren.
 
+Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt neue Likes in die gewählten Ziele. Die Liste liegt im Browser, also pro Gerät.
+
 ## Einrichtung
 
 1. Im [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) eine App mit Web API anlegen.
