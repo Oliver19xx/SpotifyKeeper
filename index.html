@@ -78,7 +78,6 @@ button:disabled { opacity: .5; cursor: default; }
   width: 100%; padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
   background: none; color: inherit; text-align: left; border-radius: 0; font: inherit; min-height: 56px;
 }
-button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; }
 .row:hover { background: var(--hover); }
 .row.sel { background: var(--hover); box-shadow: inset 3px 0 var(--accent); }
 .row input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
@@ -146,7 +145,7 @@ details > .inner { display: grid; gap: 12px; }
     </picture>
     <p>SpotifyKeeper gleicht eine Playlist mit deinen Spotify-Likes ab und überträgt die Treffer in eine neue oder bestehende Playlist.</p>
     <ol class="how">
-      <li><span class="step-no">1</span><span><b>Playlist wählen.</b> Nimm eine Playlist, in der du Songs gelikt hast.</span></li>
+      <li><span class="step-no">1</span><span><b>Playlists wählen.</b> Nimm eine oder mehrere Playlists, in denen du Songs gelikt hast.</span></li>
       <li><span class="step-no">2</span><span><b>Treffer prüfen.</b> Du siehst alle gelikten Songs und kannst einzelne abwählen.</span></li>
       <li><span class="step-no">3</span><span><b>Übertragen.</b> Songs, die schon im Ziel sind, werden ausgelassen. Die Quell-Playlist bleibt unverändert.</span></li>
     </ol>
@@ -189,11 +188,12 @@ details > .inner { display: grid; gap: 12px; }
   </section>
 
   <section id="source" hidden>
-    <div class="step-head"><span class="step-no">1</span><h2>Playlist wählen</h2></div>
+    <div class="step-head"><span class="step-no">1</span><h2>Playlists wählen</h2></div>
     <p class="muted">Fremde Playlist? Erst in der Spotify-App in eine eigene kopieren: Alle Songs markieren, dann „Zu Playlist hinzufügen“.</p>
     <input type="search" id="sourceFilter" aria-label="Playlists filtern" placeholder="Playlists filtern">
     <div class="list" id="sourceList"></div>
     <p class="muted" id="hiddenNote" hidden></p>
+    <div><button id="scanStart" type="button" disabled>Likes finden</button></div>
   </section>
 
   <section id="scan" hidden>
@@ -222,7 +222,7 @@ details > .inner { display: grid; gap: 12px; }
       <label><input type="radio" name="targetMode" id="modeExisting" value="existing"> Bestehende Playlist</label>
     </div>
     <div id="newFields" style="display:grid;gap:8px">
-      <label class="field">Name <input type="text" id="newName"></label>
+      <label class="field">Name <input type="text" id="newName" placeholder="z. B. Liked Bounce"></label>
       <label class="check"><input type="checkbox" id="newPublic"> Öffentlich</label>
     </div>
     <label class="field" id="existingField" hidden>Playlist
@@ -253,7 +253,8 @@ const store = {
   set(k, v) { try { localStorage.setItem('spotifykeeper.' + k, JSON.stringify(v)); } catch {} },
   del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
 };
-const state = { me: null, playlists: [], src: null, tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null };
+const state = { me: null, playlists: [], tracks: [], selected: new Set(), createdId: null, busy: false, pairs: [], running: null };
+state.picked = new Set(); state.srcs = []; state.srcLiked = new Map();
 
 function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
 function chunk(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
@@ -365,18 +366,37 @@ function renderSources() {
   list.replaceChildren();
   const shown = state.playlists.filter(p => ownOrCollab(p) && p.name.toLowerCase().includes(q));
   for (const p of shown) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'row' + (state.src && state.src.id === p.id ? ' sel' : '');
+    const row = document.createElement('label');
+    row.className = 'row' + (state.picked.has(p.id) ? ' sel' : '');
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.checked = state.picked.has(p.id); box.disabled = state.busy;
+    box.setAttribute('aria-label', p.name);
+    box.addEventListener('change', () => {
+      box.checked ? state.picked.add(p.id) : state.picked.delete(p.id);
+      row.classList.toggle('sel', box.checked);
+      clearResults(); updateScanButton();
+    });
     const count = (p.items || p.tracks || {}).total;
-    b.append(coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), metaEl(count == null ? '' : String(count)));
-    b.addEventListener('click', () => scan(p));
-    list.append(b);
+    row.append(box, coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), metaEl(count == null ? '' : String(count)));
+    list.append(row);
   }
   if (!shown.length) { const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px'; e.textContent = q ? 'Keine Playlist passt zum Filter.' : 'Keine eigenen Playlists gefunden.'; list.append(e); }
   const hidden = state.playlists.filter(p => p && !ownOrCollab(p)).length;
   $('hiddenNote').hidden = !hidden;
   $('hiddenNote').textContent = hidden + (hidden === 1 ? ' gefolgte Playlist ausgeblendet' : ' gefolgte Playlists ausgeblendet') + ', Spotify gibt deren Songs nicht heraus.';
+  updateScanButton();
+}
+
+function pickedPlaylists() { return state.playlists.filter(p => state.picked.has(p.id) && ownOrCollab(p)); }
+function updateScanButton() {
+  const n = pickedPlaylists().length;
+  $('scanStart').disabled = state.busy || !n;
+  $('scanStart').textContent = n > 1 ? n + ' Playlists abgleichen' : 'Likes finden';
+}
+function clearResults() {
+  state.srcs = []; state.srcLiked = new Map(); state.tracks = []; state.selected = new Set(); state.createdId = null;
+  showError('');
+  $('scan').hidden = true; $('target').hidden = true; $('actionbar').hidden = true; $('done').hidden = true;
 }
 
 /* ---------- Schritt 2: Abgleich ---------- */
@@ -416,24 +436,44 @@ async function addUris(playlistId, uris, onPart) {
     if (onPart) onPart(part.length);
   }
 }
-async function scan(playlist) {
-  if (state.busy) return;
+async function scan() {
+  const playlists = pickedPlaylists();
+  if (state.busy || !playlists.length) return;
   state.busy = true;
-  showError(''); $('done').hidden = true;
-  state.src = playlist; state.tracks = []; state.selected = new Set(); state.createdId = null;
-  renderSources();
-  $('scan').hidden = false; $('scanResult').hidden = true; $('target').hidden = true; $('actionbar').hidden = true;
-  $('scanTitle').textContent = 'Likes in ' + playlist.name;
+  clearResults(); renderSources();
+  const many = playlists.length > 1;
+  state.srcs = playlists;
+  $('scan').hidden = false; $('scanResult').hidden = true;
+  $('scanTitle').textContent = many ? 'Likes in ' + playlists.length + ' Playlists' : 'Likes in ' + playlists[0].name;
   $('scan').scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
-    const { liked, candidates, skipped, dupes } = await likedIn(playlist.id,
-      (done, total) => setProgress('Lese Playlist: ' + done + ' von ' + total, done, total),
-      (done, total) => setProgress('Gleiche mit Likes ab: ' + done + ' von ' + total, done, total));
+    const byUri = new Map(), allUris = new Set();
+    let skipped = 0, dupes = 0;
+    for (const pl of playlists) {
+      const prefix = many ? pl.name + ': ' : '';
+      let r;
+      try {
+        r = await likedIn(pl.id,
+          (done, total) => setProgress(prefix + 'Lese Playlist, ' + done + ' von ' + total, done, total),
+          (done, total) => setProgress(prefix + 'Gleiche mit Likes ab, ' + done + ' von ' + total, done, total));
+      } catch (e) {
+        if (e.status === 403) throw new Error('Spotify gibt „' + pl.name + '“ nicht frei. Lesbar sind nur eigene und kollaborative Playlists.');
+        throw e;
+      }
+      skipped += r.skipped; dupes += r.dupes;
+      for (const t of r.candidates) { if (allUris.has(t.uri)) dupes++; else allUris.add(t.uri); }
+      for (const t of r.liked) {
+        if (byUri.has(t.uri)) byUri.get(t.uri).srcNames.push(pl.name);
+        else byUri.set(t.uri, { ...t, srcNames: [pl.name] });
+      }
+      state.srcLiked.set(pl.id, r.liked.map(t => t.uri));
+    }
+    const liked = [...byUri.values()];
     state.tracks = liked;
     state.selected = new Set(liked.map(t => t.uri));
     $('progress').hidden = true;
     $('likedCount').textContent = liked.length;
-    $('totalCount').textContent = candidates.length;
+    $('totalCount').textContent = allUris.size;
     const notes = [];
     if (dupes) notes.push(dupes + ' doppelt');
     if (skipped) notes.push(skipped + ' übersprungen (lokal, Podcast oder nicht verfügbar)');
@@ -442,15 +482,14 @@ async function scan(playlist) {
     $('trackTools').hidden = !liked.length;
     renderTracks();
     if (liked.length) {
-      $('newName').value = playlist.name + ' Likes';
+      $('newName').value = many ? '' : playlists[0].name + ' Likes';
       fillExisting();
       $('target').hidden = false;
-      updateBar();
     }
   } catch (e) {
     $('progress').hidden = true;
-    showError(e.status === 403 ? 'Spotify gibt diese Playlist nicht frei. Lesbar sind nur eigene und kollaborative Playlists. Kopiere sie in eine eigene Playlist.' : e.message);
-  } finally { state.busy = false; updateBar(); }
+    showError(e.message);
+  } finally { state.busy = false; renderSources(); updateBar(); }
 }
 function renderTracks() {
   const list = $('trackList');
@@ -468,7 +507,8 @@ function renderTracks() {
     box.setAttribute('aria-label', t.name);
     box.addEventListener('change', () => { box.checked ? state.selected.add(t.uri) : state.selected.delete(t.uri); updateBar(); });
     const artists = (t.artists || []).map(a => a.name).join(', ');
-    row.append(box, coverEl(smallest(t.album && t.album.images)), nameEl(t.name, artists), metaEl(fmtDur(t.duration_ms)));
+    const sub = state.srcs.length > 1 ? artists + ' · ' + t.srcNames.join(', ') : artists;
+    row.append(box, coverEl(smallest(t.album && t.album.images)), nameEl(t.name, sub), metaEl(fmtDur(t.duration_ms)));
     list.append(row);
   }
 }
@@ -483,7 +523,7 @@ function fillExisting() {
   const keep = sel.value;
   sel.replaceChildren();
   for (const p of state.playlists) {
-    if (!ownOrCollab(p) || p.id === state.src.id) continue;
+    if (!ownOrCollab(p) || state.srcs.some(x => x.id === p.id)) continue;
     sel.append(new Option(p.name, p.id));
   }
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
@@ -515,7 +555,7 @@ async function transfer() {
     if (targetMode() === 'new' && !state.createdId) {
       targetName = $('newName').value.trim();
       const created = await api('/me/playlists', { method: 'POST', body: {
-        name: targetName, public: $('newPublic').checked, description: 'Likes aus ' + state.src.name,
+        name: targetName, public: $('newPublic').checked, description: ('Likes aus ' + state.srcs.map(x => x.name).join(', ')).slice(0, 280),
       } });
       state.createdId = targetId = created.id;
       state.createdName = targetName;
@@ -526,7 +566,11 @@ async function transfer() {
     }
     const fresh = uris.filter(u => !existingUris.has(u));
     await addUris(targetId, fresh, n => { added += n; });
-    upsertPair(state.src, targetId, targetName, state.tracks.map(t => t.uri), added);
+    const pending = new Set(fresh);
+    for (const src of state.srcs) {
+      const uris = state.srcLiked.get(src.id);
+      upsertPair(src, targetId, targetName, uris, uris.filter(u => pending.delete(u)).length);
+    }
     const already = uris.length - fresh.length;
     const done = $('done');
     done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. ') + 'Steht jetzt in der Sync-Liste. ');
@@ -634,7 +678,7 @@ async function syncAll() {
     showError(e.message);
   } finally {
     state.running = null; state.busy = false;
-    if (state.src) fillExisting();
+    if (state.srcs.length) fillExisting();
     updateBar(); renderPairs();
   }
 }
@@ -695,6 +739,7 @@ async function init() {
   $('newName').addEventListener('input', updateBar);
   $('transfer').addEventListener('click', transfer);
   $('syncAll').addEventListener('click', syncAll);
+  $('scanStart').addEventListener('click', scan);
 
   const q = new URLSearchParams(location.search);
   try {
