@@ -238,6 +238,7 @@ details > .inner { display: grid; gap: 12px; }
   <footer>
     <span class="mono" id="version"></span>
     <button class="link" id="openChangelog" type="button">Changelog</button>
+    <a id="feedback" href="https://github.com/Oliver19xx/SpotifyKeeper/issues/new" target="_blank" rel="noopener">Feedback geben</a>
   </footer>
 </div>
 
@@ -275,8 +276,9 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const CHANGELOG = [
+  { version: '1.6.0', items: ['Feedback geben: Der Link unten auf der Seite führt zu GitHub Issues.'] },
   { version: '1.5.0', items: [
     'Nach einer Übertragung kannst du sofort die nächste anlegen.',
     'Die Sync-Liste öffnet sich jetzt als Fenster über den Knopf oben.',
@@ -854,6 +856,7 @@ function setupInstall() {
 async function init() {
   setupInstall();
   $('version').textContent = 'Version ' + APP_VERSION;
+  $('feedback').href += '?' + new URLSearchParams({ body: 'Was ist dir aufgefallen?\n\n\n---\nVersion ' + APP_VERSION });
   $('openChangelog').addEventListener('click', () => openChangelog(CHANGELOG, 'Changelog'));
   $('closeChangelog').addEventListener('click', () => $('changelog').close());
   showChangelogIfUpdated();

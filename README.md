@@ -20,6 +20,10 @@ Jede Übertragung landet in einer Sync-Liste. „Alle synchronisieren“ holt ne
 
 Spotify gibt Songs nur aus eigenen und kollaborativen Playlists heraus. Fremde Playlists erst in der Spotify-App in eine eigene kopieren.
 
+## Feedback
+
+Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/SpotifyKeeper/issues/new).
+
 ## Release
 
 In `index.html` `APP_VERSION` erhöhen und `CHANGELOG` ergänzen, in `sw.js` `CACHE` anpassen. Nutzer sehen den Changelog beim nächsten Start automatisch.
