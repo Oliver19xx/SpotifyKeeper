@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SpotifyKeeper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow column, three real steps, action bar pinned to the bottom while tracks are selected. */
+:root {
+  --bg: #efeef2; --panel: #fbfafc; --line: #d3d0da; --fg: #1d1a24; --muted: #625e6e;
+  --accent: #b04a00; --on-accent: #fff; --bad: #b3261e; --good: #1f7a4d; --hover: #e6e4ec;
+  --display: "Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15131a; --panel: #1f1c26; --line: #363240; --fg: #f1eff5; --muted: #a5a0b1;
+    --accent: #ff9d3c; --on-accent: #231202; --bad: #ff8a80; --good: #6fd6a2; --hover: #2a2633;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.5 var(--display);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 calc(112px + env(safe-area-inset-bottom, 0px));
+}
+.wrap { max-width: 680px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-top: 24px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 1.9rem; line-height: 1.1; letter-spacing: -.02em; }
+h2 { margin: 0; font-size: 1.15rem; line-height: 1.25; text-wrap: balance; }
+section { display: grid; gap: 12px; min-width: 0; }
+.step-head { display: flex; gap: 10px; align-items: baseline; }
+.step-no { font: 500 .85rem var(--mono); color: var(--accent); }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: .92rem; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+a { color: var(--accent); }
+ol.setup { margin: 0; padding-left: 1.3em; display: grid; gap: 10px; }
+label.field { display: grid; gap: 4px; font-size: .92rem; color: var(--muted); }
+input[type=text], input[type=search], select {
+  width: 100%; font: inherit; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; min-height: 44px;
+}
+button {
+  font: 700 1rem var(--display); border: 0; border-radius: 6px; padding: 11px 18px; min-height: 44px;
+  background: var(--accent); color: var(--on-accent); cursor: pointer;
+}
+button.quiet { background: transparent; color: var(--fg); border: 1px solid var(--line); font-weight: 500; }
+button.link { background: none; color: var(--muted); padding: 0; min-height: 0; font-weight: 500; text-decoration: underline; font-size: .92rem; }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.copyline { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.copyline code {
+  flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font: .88rem var(--mono);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px;
+}
+.list { border-top: 1px solid var(--line); max-height: 52vh; overflow-y: auto; }
+.row {
+  display: grid; grid-template-columns: auto 40px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+  width: 100%; padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer;
+  background: none; color: inherit; text-align: left; border-radius: 0; font: inherit; min-height: 56px;
+}
+button.row { grid-template-columns: 40px minmax(0, 1fr) auto; font-weight: 400; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--hover); box-shadow: inset 3px 0 var(--accent); }
+.row input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+.cover { width: 40px; height: 40px; border-radius: 3px; background: var(--line); object-fit: cover; display: block; }
+.name { min-width: 0; }
+.name b, .name span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name b { font-weight: 500; }
+.name span { color: var(--muted); font-size: .88rem; }
+.meta { font: .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats { display: flex; gap: 8px 20px; flex-wrap: wrap; align-items: baseline; }
+.stats strong { font: 500 1.5rem var(--mono); color: var(--accent); }
+.tools { display: flex; gap: 8px 16px; flex-wrap: wrap; }
+.seg { display: flex; gap: 20px; flex-wrap: wrap; }
+.seg label, .check { display: flex; gap: 8px; align-items: center; min-height: 32px; }
+.seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.msg { padding: 10px 12px; border-radius: 6px; border: 1px solid var(--bad); color: var(--bad); overflow-wrap: anywhere; }
+.msg.ok { border-color: var(--good); color: var(--good); }
+.actionbar {
+  position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+  padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.actionbar > div { max-width: 680px; margin: 0 auto; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SpotifyKeeper</h1>
+    <span class="muted" id="who" hidden></span>
+  </header>
+
+  <div class="msg" id="error" role="alert" hidden></div>
+
+  <section id="setup" hidden>
+    <h2>Mit Spotify verbinden</h2>
+    <p class="msg" id="originWarn" hidden></p>
+    <ol class="setup">
+      <li>Im <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> eine App anlegen, bei den APIs „Web API“ wählen.</li>
+      <li>Diese Adresse als Redirect URI eintragen:
+        <div class="copyline" style="margin-top:6px"><code id="redirect"></code><button class="quiet" id="copyRedirect" type="button">Kopieren</button></div>
+      </li>
+      <li>Client ID kopieren und hier einfügen. Der Client Secret wird nicht gebraucht.</li>
+    </ol>
+    <label class="field">Client ID
+      <input type="text" id="clientId" autocomplete="off" spellcheck="false" placeholder="32 Zeichen aus dem Dashboard">
+    </label>
+    <div><button id="login" type="button">Bei Spotify anmelden</button></div>
+  </section>
+
+  <section id="source" hidden>
+    <div class="step-head"><span class="step-no">1</span><h2>Playlist wählen</h2></div>
+    <p class="muted">Fremde Playlist? Erst in der Spotify-App in eine eigene kopieren: Alle Songs markieren, dann „Zu Playlist hinzufügen“.</p>
+    <input type="search" id="sourceFilter" aria-label="Playlists filtern" placeholder="Playlists filtern">
+    <div class="list" id="sourceList"></div>
+    <p class="muted" id="hiddenNote" hidden></p>
+  </section>
+
+  <section id="scan" hidden>
+    <div class="step-head"><span class="step-no">2</span><h2 id="scanTitle">Likes</h2></div>
+    <div id="progress" hidden>
+      <p class="muted" id="progressText" style="margin-bottom:6px"></p>
+      <div class="bar"><i id="progressBar"></i></div>
+    </div>
+    <div id="scanResult" hidden style="display:grid;gap:12px">
+      <div class="stats">
+        <span><strong id="likedCount">0</strong> <span class="muted">von <span id="totalCount">0</span> Songs gelikt</span></span>
+        <span class="muted" id="skippedNote"></span>
+      </div>
+      <div class="tools" id="trackTools">
+        <button class="link" id="selectAll" type="button">Alle wählen</button>
+        <button class="link" id="selectNone" type="button">Keine wählen</button>
+      </div>
+      <div class="list" id="trackList"></div>
+    </div>
+  </section>
+
+  <section id="target" hidden>
+    <div class="step-head"><span class="step-no">3</span><h2>Ziel</h2></div>
+    <div class="seg" role="radiogroup" aria-label="Ziel-Playlist">
+      <label><input type="radio" name="targetMode" id="modeNew" value="new" checked> Neue Playlist</label>
+      <label><input type="radio" name="targetMode" id="modeExisting" value="existing"> Bestehende Playlist</label>
+    </div>
+    <div id="newFields" style="display:grid;gap:8px">
+      <label class="field">Name <input type="text" id="newName"></label>
+      <label class="check"><input type="checkbox" id="newPublic"> Öffentlich</label>
+    </div>
+    <label class="field" id="existingField" hidden>Playlist
+      <select id="existingSelect"></select>
+    </label>
+    <div class="msg ok" id="done" hidden></div>
+  </section>
+</div>
+
+<div class="actionbar" id="actionbar" hidden>
+  <div>
+    <span class="mono" id="selCount"></span>
+    <button id="transfer" type="button">Übertragen</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const API = 'https://api.spotify.com/v1';
+const ACCOUNTS = 'https://accounts.spotify.com';
+const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public';
+const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60;
+
+const $ = id => document.getElementById(id);
+const redirectUri = location.origin + location.pathname;
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem('spotifykeeper.' + k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem('spotifykeeper.' + k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem('spotifykeeper.' + k); } catch {} },
+};
+const state = { me: null, playlists: [], src: null, tracks: [], selected: new Set(), createdId: null, busy: false };
+
+function showError(text) { $('error').textContent = text; $('error').hidden = !text; }
+function chunk(a, n) { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function b64url(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function randomString() { return b64url(crypto.getRandomValues(new Uint8Array(48))); }
+function fmtDur(ms) { const s = Math.round((ms || 0) / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function songs(n) { return n === 1 ? '1 Song' : n + ' Songs'; }
+
+/* ---------- Anmeldung (PKCE) ---------- */
+async function startLogin() {
+  const clientId = $('clientId').value.trim();
+  if (!/^[0-9a-zA-Z]{20,}$/.test(clientId)) { showError('Die Client ID fehlt oder ist unvollständig. Kopiere sie aus dem Spotify Dashboard.'); return; }
+  store.set('clientId', clientId);
+  const verifier = randomString(), authState = randomString();
+  store.set('verifier', verifier); store.set('state', authState);
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  location.href = ACCOUNTS + '/authorize?' + new URLSearchParams({
+    response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: SCOPES,
+    code_challenge_method: 'S256', code_challenge: challenge, state: authState,
+  });
+}
+async function tokenRequest(params) {
+  const res = await fetch(ACCOUNTS + '/api/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error('Anmeldung fehlgeschlagen: ' + (data.error_description || data.error || res.status));
+  const old = store.get('session') || {};
+  const session = { access: data.access_token, refresh: data.refresh_token || old.refresh, exp: Date.now() + (data.expires_in - 60) * 1000 };
+  store.set('session', session);
+  return session;
+}
+async function finishLogin(code, returnedState) {
+  const expected = store.get('state'), verifier = store.get('verifier');
+  store.del('state'); store.del('verifier');
+  if (!expected || returnedState !== expected || !verifier) throw new Error('Die Anmeldung konnte nicht bestätigt werden. Bitte noch einmal anmelden.');
+  await tokenRequest({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: store.get('clientId'), code_verifier: verifier });
+}
+function refreshSession() {
+  const s = store.get('session');
+  if (!s || !s.refresh) { logout(); throw new Error('Die Anmeldung ist abgelaufen. Bitte neu anmelden.'); }
+  return tokenRequest({ grant_type: 'refresh_token', refresh_token: s.refresh, client_id: store.get('clientId') });
+}
+function logout() { store.del('session'); location.href = redirectUri; }
+
+/* ---------- API ---------- */
+async function api(path, opts = {}) {
+  let session = store.get('session');
+  if (!session) throw new Error('Nicht angemeldet.');
+  if (Date.now() > session.exp) session = await refreshSession();
+  const url = path.startsWith('http') ? path : API + path;
+  let refreshed = false;
+  for (;;) {
+    const res = await fetch(url, {
+      method: opts.method || 'GET',
+      headers: { Authorization: 'Bearer ' + session.access, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    if (res.status === 429) {
+      const wait = Number(res.headers.get('Retry-After')) || 1;
+      if (wait > MAX_RETRY_WAIT) throw new Error('Spotify drosselt gerade (' + Math.ceil(wait / 60) + ' Min. warten). Versuche es später erneut.');
+      await sleep(wait * 1000);
+      continue;
+    }
+    if (res.status === 401 && !refreshed) { refreshed = true; session = await refreshSession(); continue; }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const err = new Error('Spotify meldet ' + res.status + ': ' + ((data && data.error && data.error.message) || 'unbekannter Fehler'));
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+}
+async function getAll(path, onPage) {
+  const all = [];
+  let next = path;
+  while (next) {
+    const page = await api(next);
+    all.push(...page.items);
+    if (onPage) onPage(all.length, page.total);
+    next = page.next;
+  }
+  return all;
+}
+const ownOrCollab = p => p && (p.collaborative || (p.owner && p.owner.id === state.me.id));
+
+/* ---------- Schritt 1: Quelle ---------- */
+function coverEl(url) {
+  const img = document.createElement(url ? 'img' : 'div');
+  img.className = 'cover';
+  if (url) { img.src = url; img.alt = ''; img.loading = 'lazy'; }
+  return img;
+}
+function nameEl(title, sub) {
+  const box = document.createElement('div'); box.className = 'name';
+  const b = document.createElement('b'); b.textContent = title;
+  const s = document.createElement('span'); s.textContent = sub;
+  box.append(b, s);
+  return box;
+}
+function metaEl(text) { const m = document.createElement('span'); m.className = 'meta'; m.textContent = text; return m; }
+function smallest(images) { return images && images.length ? images[images.length - 1].url : ''; }
+
+function renderSources() {
+  const q = $('sourceFilter').value.trim().toLowerCase();
+  const list = $('sourceList');
+  list.replaceChildren();
+  const shown = state.playlists.filter(p => ownOrCollab(p) && p.name.toLowerCase().includes(q));
+  for (const p of shown) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'row' + (state.src && state.src.id === p.id ? ' sel' : '');
+    const count = (p.items || p.tracks || {}).total;
+    b.append(coverEl(smallest(p.images)), nameEl(p.name, p.owner.id === state.me.id ? 'Eigene Playlist' : 'Kollaborativ'), metaEl(count == null ? '' : String(count)));
+    b.addEventListener('click', () => scan(p));
+    list.append(b);
+  }
+  if (!shown.length) { const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px'; e.textContent = q ? 'Keine Playlist passt zum Filter.' : 'Keine eigenen Playlists gefunden.'; list.append(e); }
+  const hidden = state.playlists.filter(p => p && !ownOrCollab(p)).length;
+  $('hiddenNote').hidden = !hidden;
+  $('hiddenNote').textContent = hidden + (hidden === 1 ? ' gefolgte Playlist ausgeblendet' : ' gefolgte Playlists ausgeblendet') + ', Spotify gibt deren Songs nicht heraus.';
+}
+
+/* ---------- Schritt 2: Abgleich ---------- */
+function setProgress(text, done, total) {
+  $('progress').hidden = false;
+  $('progressText').textContent = text;
+  $('progressBar').style.width = (total ? Math.min(100, done / total * 100) : 0) + '%';
+}
+async function scan(playlist) {
+  if (state.busy) return;
+  state.busy = true;
+  showError(''); $('done').hidden = true;
+  state.src = playlist; state.tracks = []; state.selected = new Set(); state.createdId = null;
+  renderSources();
+  $('scan').hidden = false; $('scanResult').hidden = true; $('target').hidden = true; $('actionbar').hidden = true;
+  $('scanTitle').textContent = 'Likes in ' + playlist.name;
+  $('scan').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  try {
+    const rows = await getAll('/playlists/' + encodeURIComponent(playlist.id) + '/items?additional_types=track&limit=' + PAGE_MAX,
+      (done, total) => setProgress('Lese Playlist: ' + done + ' von ' + total, done, total));
+    const seen = new Set(), candidates = [];
+    let skipped = 0, dupes = 0;
+    for (const row of rows) {
+      const t = row && (row.item || row.track);
+      if (!t || row.is_local || t.is_local || t.type !== 'track' || !t.uri) { skipped++; continue; }
+      if (seen.has(t.uri)) { dupes++; continue; }
+      seen.add(t.uri); candidates.push(t);
+    }
+    const liked = [];
+    let checked = 0;
+    for (const part of chunk(candidates, CONTAINS_MAX)) {
+      const flags = await api('/me/library/contains?' + new URLSearchParams({ uris: part.map(t => t.uri).join(',') }));
+      if (!Array.isArray(flags) || flags.length !== part.length) throw new Error('Spotify hat beim Like-Abgleich eine unerwartete Antwort geliefert.');
+      part.forEach((t, i) => { if (flags[i]) liked.push(t); });
+      checked += part.length;
+      setProgress('Gleiche mit Likes ab: ' + checked + ' von ' + candidates.length, checked, candidates.length);
+    }
+    state.tracks = liked;
+    state.selected = new Set(liked.map(t => t.uri));
+    $('progress').hidden = true;
+    $('likedCount').textContent = liked.length;
+    $('totalCount').textContent = candidates.length;
+    const notes = [];
+    if (dupes) notes.push(dupes + ' doppelt');
+    if (skipped) notes.push(skipped + ' übersprungen (lokal, Podcast oder nicht verfügbar)');
+    $('skippedNote').textContent = notes.join(', ');
+    $('scanResult').hidden = false;
+    $('trackTools').hidden = !liked.length;
+    renderTracks();
+    if (liked.length) {
+      $('newName').value = playlist.name + ' Likes';
+      fillExisting();
+      $('target').hidden = false;
+      updateBar();
+    }
+  } catch (e) {
+    $('progress').hidden = true;
+    showError(e.status === 403 ? 'Spotify gibt diese Playlist nicht frei. Lesbar sind nur eigene und kollaborative Playlists. Kopiere sie in eine eigene Playlist.' : e.message);
+  } finally { state.busy = false; updateBar(); }
+}
+function renderTracks() {
+  const list = $('trackList');
+  list.replaceChildren();
+  if (!state.tracks.length) {
+    const e = document.createElement('p'); e.className = 'muted'; e.style.padding = '12px 4px';
+    e.textContent = 'Keiner dieser Songs ist gelikt. Like Songs in Spotify und wähle die Playlist danach erneut.';
+    list.append(e); return;
+  }
+  for (const t of state.tracks) {
+    const row = document.createElement('label');
+    row.className = 'row';
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.checked = state.selected.has(t.uri); box.dataset.uri = t.uri;
+    box.setAttribute('aria-label', t.name);
+    box.addEventListener('change', () => { box.checked ? state.selected.add(t.uri) : state.selected.delete(t.uri); updateBar(); });
+    const artists = (t.artists || []).map(a => a.name).join(', ');
+    row.append(box, coverEl(smallest(t.album && t.album.images)), nameEl(t.name, artists), metaEl(fmtDur(t.duration_ms)));
+    list.append(row);
+  }
+}
+function selectAll(on) {
+  state.selected = new Set(on ? state.tracks.map(t => t.uri) : []);
+  renderTracks(); updateBar();
+}
+
+/* ---------- Schritt 3: Übertragen ---------- */
+function fillExisting() {
+  const sel = $('existingSelect');
+  const keep = sel.value;
+  sel.replaceChildren();
+  for (const p of state.playlists) {
+    if (!ownOrCollab(p) || p.id === state.src.id) continue;
+    sel.append(new Option(p.name, p.id));
+  }
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  $('modeExisting').disabled = !sel.options.length;
+}
+function targetMode() { return $('modeNew').checked ? 'new' : 'existing'; }
+function syncMode() {
+  const isNew = targetMode() === 'new';
+  $('newFields').hidden = !isNew;
+  $('existingField').hidden = isNew;
+  updateBar();
+}
+function updateBar() {
+  const n = state.selected.size;
+  $('actionbar').hidden = !state.tracks.length;
+  $('selCount').textContent = songs(n);
+  $('transfer').disabled = state.busy || !n || (targetMode() === 'new' && !state.createdId && !$('newName').value.trim());
+}
+async function transfer() {
+  if (state.busy) return;
+  state.busy = true; updateBar();
+  showError(''); $('done').hidden = true;
+  const uris = state.tracks.map(t => t.uri).filter(u => state.selected.has(u));
+  let added = 0, targetId = null, targetName = '';
+  $('transfer').textContent = 'Übertrage…';
+  try {
+    let existingUris = new Set();
+    if (targetMode() === 'new' && !state.createdId) {
+      targetName = $('newName').value.trim();
+      const created = await api('/me/playlists', { method: 'POST', body: {
+        name: targetName, public: $('newPublic').checked, description: 'Likes aus ' + state.src.name,
+      } });
+      state.createdId = targetId = created.id;
+      state.createdName = targetName;
+    } else {
+      if (targetMode() === 'new') { targetId = state.createdId; targetName = state.createdName; }
+      else { targetId = $('existingSelect').value; targetName = $('existingSelect').selectedOptions[0].textContent; }
+      const rows = await getAll('/playlists/' + encodeURIComponent(targetId) + '/items?additional_types=track&limit=' + PAGE_MAX);
+      existingUris = new Set(rows.map(r => r && (r.item || r.track)).filter(Boolean).map(t => t.uri));
+    }
+    const fresh = uris.filter(u => !existingUris.has(u));
+    for (const part of chunk(fresh, ADD_MAX)) {
+      await api('/playlists/' + encodeURIComponent(targetId) + '/items', { method: 'POST', body: { uris: part } });
+      added += part.length;
+    }
+    const already = uris.length - fresh.length;
+    const done = $('done');
+    done.replaceChildren(songs(added) + ' in „' + targetName + '“ übertragen' + (already ? ', ' + already + ' waren schon drin. ' : '. '));
+    const a = document.createElement('a');
+    a.href = 'https://open.spotify.com/playlist/' + encodeURIComponent(targetId);
+    a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'In Spotify öffnen';
+    done.append(a);
+    done.hidden = false;
+    state.createdId = null;
+    await loadPlaylists();
+    fillExisting();
+    done.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch (e) {
+    showError(e.message + (targetId ? ' ' + added + ' von ' + uris.length + ' Songs sind in „' + targetName + '“. Erneut übertragen lässt vorhandene Songs aus.' : ''));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } finally {
+    state.busy = false;
+    $('transfer').textContent = 'Übertragen';
+    updateBar();
+  }
+}
+
+/* ---------- Start ---------- */
+async function loadPlaylists() {
+  state.playlists = (await getAll('/me/playlists?limit=' + PAGE_MAX)).filter(Boolean);
+  renderSources();
+}
+function showSetup() {
+  $('setup').hidden = false;
+  $('redirect').textContent = redirectUri;
+  $('clientId').value = store.get('clientId') || '';
+  const bad = location.protocol === 'file:' ? 'Als lokale Datei funktioniert die Anmeldung nicht. Öffne die Seite über https oder http://127.0.0.1.'
+    : location.hostname === 'localhost' ? 'Spotify akzeptiert „localhost“ nicht als Redirect URI. Öffne die Seite über http://127.0.0.1.'
+    : (location.protocol === 'http:' && location.hostname !== '127.0.0.1') ? 'Spotify verlangt https oder http://127.0.0.1.' : '';
+  $('originWarn').textContent = bad; $('originWarn').hidden = !bad;
+  $('login').disabled = !!bad;
+}
+async function init() {
+  $('login').addEventListener('click', startLogin);
+  $('copyRedirect').addEventListener('click', async e => {
+    try { await navigator.clipboard.writeText(redirectUri); e.target.textContent = 'Kopiert'; }
+    catch { getSelection().selectAllChildren($('redirect')); }
+  });
+  $('sourceFilter').addEventListener('input', renderSources);
+  $('selectAll').addEventListener('click', () => selectAll(true));
+  $('selectNone').addEventListener('click', () => selectAll(false));
+  $('modeNew').addEventListener('change', syncMode);
+  $('modeExisting').addEventListener('change', syncMode);
+  $('newName').addEventListener('input', updateBar);
+  $('transfer').addEventListener('click', transfer);
+
+  const q = new URLSearchParams(location.search);
+  try {
+    if (q.get('error')) {
+      history.replaceState(null, '', location.pathname);
+      throw new Error(q.get('error') === 'access_denied' ? 'Du hast den Zugriff bei Spotify abgelehnt.' : 'Spotify meldet: ' + q.get('error'));
+    }
+    if (q.get('code')) {
+      const code = q.get('code'), st = q.get('state');
+      history.replaceState(null, '', location.pathname);
+      await finishLogin(code, st);
+    }
+    if (!store.get('session')) { showSetup(); return; }
+    state.me = await api('/me');
+    const who = $('who');
+    who.hidden = false;
+    who.replaceChildren((state.me.display_name || state.me.id) + ' · ');
+    const out = document.createElement('button');
+    out.className = 'link'; out.type = 'button'; out.textContent = 'Abmelden';
+    out.addEventListener('click', logout);
+    who.append(out);
+    $('source').hidden = false;
+    await loadPlaylists();
+  } catch (e) {
+    showError(e.message);
+    if (!state.me) { showSetup(); }
+  }
+}
+init();
+</script>
+</body>
+</html>
