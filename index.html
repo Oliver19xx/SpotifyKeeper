@@ -95,9 +95,9 @@ button:disabled { opacity: .5; cursor: default; }
 .seg input, .check input { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
 .head-right { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
 .head-right button.quiet { min-height: 36px; padding: 6px 12px; font-size: .92rem; }
-.sync-body { display: grid; gap: 12px; }
+.sync-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1 1 auto; }
 .sync-body h2 { margin: 0; }
-.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.sync-actions { display: flex; gap: 8px; flex-wrap: wrap; flex: none; }
 .pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); }
 .pair .route { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
 .pair .route i { font-style: normal; color: var(--accent); padding: 0 4px; }
@@ -106,9 +106,17 @@ button:disabled { opacity: .5; cursor: default; }
 .pair .state.new { color: var(--good); }
 .pairs { border-top: 1px solid var(--line); }
 footer { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; color: var(--muted); font-size: .88rem; }
-dialog { width: min(480px, calc(100vw - 32px)); max-height: 80vh; padding: 20px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+dialog {
+  width: min(480px, calc(100vw - 32px)); padding: 20px; overflow: hidden; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+/* Kopf und Knöpfe bleiben stehen, nur die Liste dazwischen scrollt. */
+dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+.dialog-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+dialog button { flex: none; }
+#closeChangelog { align-self: flex-start; }
 dialog::backdrop { background: rgba(10, 8, 14, .6); }
-dialog h2 { margin-bottom: 12px; }
 .release { display: grid; gap: 6px; padding-bottom: 14px; }
 .release h3 { margin: 0; font: 500 .9rem var(--mono); color: var(--accent); }
 .release ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
@@ -246,7 +254,7 @@ details > .inner { display: grid; gap: 12px; }
   <div class="sync-body">
     <h2 id="syncTitle">Sync-Liste</h2>
     <p class="muted">Holt neue Likes aus jeder Quelle ins Ziel und entfernt Songs, deren Like du zurückgenommen hast. Songs, die du selbst ins Ziel gelegt hast, bleiben drin.</p>
-    <div class="pairs" id="pairList"></div>
+    <div class="pairs dialog-scroll" id="pairList"></div>
     <p class="muted" id="syncStatus" role="status" hidden></p>
     <div class="sync-actions">
       <button id="syncAll" type="button">Alle synchronisieren</button>
@@ -257,7 +265,7 @@ details > .inner { display: grid; gap: 12px; }
 
 <dialog id="changelog" aria-labelledby="changelogTitle">
   <h2 id="changelogTitle">Neu in SpotifyKeeper</h2>
-  <div id="changelogBody"></div>
+  <div class="dialog-scroll" id="changelogBody"></div>
   <button id="closeChangelog" type="button">Alles klar</button>
 </dialog>
 
@@ -276,8 +284,9 @@ const SCOPES = 'user-library-read playlist-read-private playlist-read-collaborat
 const CONTAINS_MAX = 40, ADD_MAX = 100, PAGE_MAX = 50, MAX_RETRY_WAIT = 60, SAFETY_MIN = 5;
 
 // Bei jedem Release: APP_VERSION erhöhen, Eintrag oben ergänzen, CACHE in sw.js anpassen.
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const CHANGELOG = [
+  { version: '1.6.2', items: ['Lange Listen scrollen im Fenster, der Knopf bleibt immer sichtbar.'] },
   { version: '1.6.1', items: ['Dieses Fenster bleibt nach einem Update offen, bis du es schließt.'] },
   { version: '1.6.0', items: ['Feedback geben: Der Link unten auf der Seite führt zu GitHub Issues.'] },
   { version: '1.5.0', items: [
